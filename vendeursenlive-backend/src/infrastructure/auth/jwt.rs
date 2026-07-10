@@ -3,7 +3,10 @@ use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::infrastructure::config::AuthConfig;
+use crate::{
+    application::{errors::ApplicationError, ports::auth::AccessTokenIssuer},
+    infrastructure::config::AuthConfig,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccessTokenClaims {
@@ -62,5 +65,18 @@ impl JwtService {
             &Validation::default(),
         )
         .map(|data| data.claims)
+    }
+}
+
+impl AccessTokenIssuer for JwtService {
+    fn issue_access_token(
+        &self,
+        user_id: Uuid,
+        session_id: Uuid,
+        is_admin: bool,
+        is_seller: bool,
+    ) -> Result<String, ApplicationError> {
+        JwtService::issue_access_token(self, user_id, session_id, is_admin, is_seller)
+            .map_err(|error| ApplicationError::Infrastructure(error.to_string()))
     }
 }

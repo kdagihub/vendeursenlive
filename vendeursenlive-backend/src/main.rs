@@ -1,19 +1,21 @@
-use actix_web::{middleware::Logger, web, App, HttpServer};
+use actix_cors::Cors;
+use actix_web::{
+    http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE},
+    middleware::Logger,
+    web, App, HttpServer,
+};
 use sea_orm::Database;
 use tracing::{info, instrument};
 use tracing_actix_web::TracingLogger;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use vendeursenlive_backend::{
-    infrastructure::{auth::jwt::JwtService, config::AppConfig},
-    presentation,
+    infrastructure::{auth::jwt::JwtService, config::AppConfig, database::migrations},
+    presentation::{
+        self,
+        middlewares::{csrf::CsrfProtection, csrf::CSRF_HEADER, rate_limit::RateLimit},
+    },
+    AppState,
 };
-
-#[derive(Clone)]
-pub struct AppState {
-    pub db: sea_orm::DatabaseConnection,
-    pub redis: redis::Client,
-    pub jwt: JwtService,
-}
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -23,6 +25,12 @@ async fn main() -> std::io::Result<()> {
     let config = AppConfig::from_env().map_err(to_io_error)?;
     let state = bootstrap_state(&config).await.map_err(to_io_error)?;
     let bind_address = config.server.bind_address();
+    let cors_allowed_origins = config.cors.allowed_origins.clone();
+    let rate_limit = RateLimit::new(
+        config.rate_limit.enabled,
+        config.rate_limit.requests_per_minute,
+    );
+    let csrf_protection = CsrfProtection::new(config.security.csrf_protection_enabled);
 
     info!(
         app_env = ?config.app_env,
@@ -31,8 +39,26 @@ async fn main() -> std::io::Result<()> {
     );
 
     HttpServer::new(move || {
+        let mut cors = Cors::default()
+            .allowed_methods(vec!["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+            .allowed_headers(vec![
+                CONTENT_TYPE,
+                AUTHORIZATION,
+                ACCEPT,
+                actix_web::http::header::HeaderName::from_static(CSRF_HEADER),
+            ])
+            .supports_credentials()
+            .max_age(3600);
+
+        for origin in &cors_allowed_origins {
+            cors = cors.allowed_origin(origin);
+        }
+
         App::new()
             .app_data(web::Data::new(state.clone()))
+            .wrap(rate_limit.clone())
+            .wrap(csrf_protection.clone())
+            .wrap(cors)
             .wrap(TracingLogger::default())
             .wrap(Logger::default())
             .configure(presentation::http::routes::configure)
@@ -46,6 +72,10 @@ async fn main() -> std::io::Result<()> {
 async fn bootstrap_state(config: &AppConfig) -> anyhow::Result<AppState> {
     let db = Database::connect(&config.database.url).await?;
 
+    if config.migrations.run_on_start {
+        migrations::run_pending_migrations(&db).await?;
+    }
+
     let redis = redis::Client::open(config.redis.url.as_str())?;
     let mut redis_connection = redis.get_multiplexed_async_connection().await?;
     let _: String = redis::cmd("PING")
@@ -58,6 +88,8 @@ async fn bootstrap_state(config: &AppConfig) -> anyhow::Result<AppState> {
         db,
         redis,
         jwt: JwtService::new(&config.auth),
+        auth_config: config.auth.clone(),
+        tiktok_config: config.tiktok.clone(),
     })
 }
 

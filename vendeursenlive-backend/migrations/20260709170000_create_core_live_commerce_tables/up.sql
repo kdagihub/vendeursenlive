@@ -45,6 +45,15 @@ CREATE TABLE auth_sessions (
     last_used_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE password_reset_tokens (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_auth_identity_id UUID NOT NULL REFERENCES user_auth_identities(id) ON DELETE CASCADE,
+    token_hash VARCHAR(255) NOT NULL,
+    used_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE customer_profiles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
@@ -113,6 +122,8 @@ CREATE UNIQUE INDEX idx_user_auth_identities_phone_number
 CREATE INDEX idx_user_auth_identities_user_id ON user_auth_identities(user_id);
 CREATE INDEX idx_auth_sessions_user_id ON auth_sessions(user_id);
 CREATE INDEX idx_auth_sessions_expires_at ON auth_sessions(expires_at);
+CREATE INDEX idx_password_reset_tokens_identity_id ON password_reset_tokens(user_auth_identity_id);
+CREATE INDEX idx_password_reset_tokens_expires_at ON password_reset_tokens(expires_at);
 CREATE INDEX idx_customer_profiles_user_id ON customer_profiles(user_id);
 CREATE INDEX idx_seller_profiles_user_id ON seller_profiles(user_id);
 CREATE INDEX idx_live_sessions_seller_profile_id ON live_sessions(seller_profile_id);

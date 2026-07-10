@@ -12,6 +12,7 @@ publish = false
 actix-cors = "0.7"
 actix-web = "4"
 anyhow = "1"
+argon2 = "0.5"
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 dotenvy = "0.15"

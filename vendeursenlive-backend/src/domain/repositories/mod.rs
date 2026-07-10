@@ -4,7 +4,7 @@ use uuid::Uuid;
 use crate::domain::{
     entities::{
         AuthProvider, AuthSession, CustomerProfile, EphemeralProduct, LiveSession, Order,
-        SellerProfile, User, UserAuthIdentity,
+        PasswordResetToken, SellerProfile, User, UserAuthIdentity,
     },
     errors::DomainError,
 };
@@ -18,6 +18,16 @@ pub trait UserRepository: Send + Sync {
 #[async_trait]
 pub trait UserAuthIdentityRepository: Send + Sync {
     async fn save(&self, identity: &UserAuthIdentity) -> Result<(), DomainError>;
+    async fn find_by_id(&self, id: Uuid) -> Result<Option<UserAuthIdentity>, DomainError>;
+    async fn update_password_hash(
+        &self,
+        identity_id: Uuid,
+        password_hash: String,
+    ) -> Result<(), DomainError>;
+    async fn find_local_by_user_id(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Option<UserAuthIdentity>, DomainError>;
     async fn find_by_email(&self, email: &str) -> Result<Option<UserAuthIdentity>, DomainError>;
     async fn find_by_phone_number(
         &self,
@@ -31,10 +41,18 @@ pub trait UserAuthIdentityRepository: Send + Sync {
 }
 
 #[async_trait]
+pub trait PasswordResetTokenRepository: Send + Sync {
+    async fn save(&self, token: &PasswordResetToken) -> Result<(), DomainError>;
+    async fn find_active(&self) -> Result<Vec<PasswordResetToken>, DomainError>;
+    async fn mark_used(&self, id: Uuid) -> Result<(), DomainError>;
+}
+
+#[async_trait]
 pub trait AuthSessionRepository: Send + Sync {
     async fn save(&self, session: &AuthSession) -> Result<(), DomainError>;
     async fn find_by_id(&self, id: Uuid) -> Result<Option<AuthSession>, DomainError>;
     async fn revoke(&self, id: Uuid) -> Result<(), DomainError>;
+    async fn revoke_all_for_user(&self, user_id: Uuid) -> Result<(), DomainError>;
 }
 
 #[async_trait]

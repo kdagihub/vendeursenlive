@@ -1,1 +1,1 @@
-// Extractors Actix-Web specifiques a l'interface HTTP.
+pub mod authenticated_user;
