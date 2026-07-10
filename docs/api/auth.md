@@ -239,7 +239,24 @@ Redirige vers TikTok avec:
 GET /auth/tiktok/callback?code=...&state=...
 ```
 
-Le backend valide le `state`. L'echange du `code` contre les tokens TikTok sera branche ensuite avec les secrets TikTok definitifs.
+Le backend:
+- valide le `state` anti-CSRF OAuth
+- echange le `code` contre un access token TikTok
+- appelle `https://open.tiktokapis.com/v2/user/info/` avec le scope `user.info.basic`
+- retrouve ou cree une identite `TikTok`
+- cree une session VendeursEnLive
+- pose les cookies auth VendeursEnLive
+- redirige vers `TIKTOK_SUCCESS_REDIRECT_URL`, par defaut `/app`
+
+Reponse attendue en cas de succes:
+
+```http
+302 Location: https://vendeursenlive.shop/app
+Set-Cookie: vel_access_token=...
+Set-Cookie: vel_refresh_token=...
+Set-Cookie: vel_refresh_session=...
+Set-Cookie: vel_csrf_token=...
+```
 
 ## Erreurs attendues
 
@@ -251,4 +268,3 @@ Le backend valide le `state`. L'echange du `code` contre les tokens TikTok sera 
 | `409` | Email ou telephone deja utilise |
 | `429` | Rate limit depasse |
 | `500` | Erreur infrastructure |
-

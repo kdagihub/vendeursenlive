@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use uuid::Uuid;
 
 use crate::application::errors::ApplicationError;
@@ -29,4 +30,28 @@ pub trait AccessTokenIssuer: Send + Sync {
         is_admin: bool,
         is_seller: bool,
     ) -> Result<String, ApplicationError>;
+}
+
+#[derive(Debug, Clone)]
+pub struct TikTokTokenResponse {
+    pub open_id: String,
+    pub access_token: String,
+    pub scope: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct TikTokUserProfile {
+    pub open_id: String,
+    pub union_id: Option<String>,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+}
+
+#[async_trait]
+pub trait TikTokOAuthClient: Send + Sync {
+    async fn exchange_code(&self, code: &str) -> Result<TikTokTokenResponse, ApplicationError>;
+    async fn fetch_user_profile(
+        &self,
+        access_token: &str,
+    ) -> Result<TikTokUserProfile, ApplicationError>;
 }

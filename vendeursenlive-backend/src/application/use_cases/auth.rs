@@ -11,11 +11,15 @@ use crate::{
             RequestPasswordResetCommand,
         },
         errors::ApplicationError,
-        ports::auth::{AccessTokenIssuer, PasswordHasher, RefreshTokenService},
+        ports::auth::{
+            AccessTokenIssuer, PasswordHasher, RefreshTokenService, TikTokOAuthClient,
+            TikTokUserProfile,
+        },
     },
     domain::{
         entities::{
-            AuthSession, CustomerProfile, SellerProfile, User, UserAuthIdentity, UserStatus,
+            AuthProvider, AuthSession, CustomerProfile, SellerProfile, User, UserAuthIdentity,
+            UserStatus,
         },
         repositories::{
             AuthSessionRepository, CustomerProfileRepository, PasswordResetTokenRepository,
@@ -36,6 +40,150 @@ pub struct RegisterUserUseCase {
     access_tokens: Arc<dyn AccessTokenIssuer>,
     access_token_ttl_seconds: i64,
     refresh_token_ttl_seconds: i64,
+}
+
+pub struct TikTokLoginUseCase {
+    user_repository: Arc<dyn UserRepository>,
+    identity_repository: Arc<dyn UserAuthIdentityRepository>,
+    auth_session_repository: Arc<dyn AuthSessionRepository>,
+    customer_profile_repository: Arc<dyn CustomerProfileRepository>,
+    seller_profile_repository: Arc<dyn SellerProfileRepository>,
+    tiktok_oauth: Arc<dyn TikTokOAuthClient>,
+    refresh_tokens: Arc<dyn RefreshTokenService>,
+    access_tokens: Arc<dyn AccessTokenIssuer>,
+    access_token_ttl_seconds: i64,
+    refresh_token_ttl_seconds: i64,
+}
+
+impl TikTokLoginUseCase {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        user_repository: Arc<dyn UserRepository>,
+        identity_repository: Arc<dyn UserAuthIdentityRepository>,
+        auth_session_repository: Arc<dyn AuthSessionRepository>,
+        customer_profile_repository: Arc<dyn CustomerProfileRepository>,
+        seller_profile_repository: Arc<dyn SellerProfileRepository>,
+        tiktok_oauth: Arc<dyn TikTokOAuthClient>,
+        refresh_tokens: Arc<dyn RefreshTokenService>,
+        access_tokens: Arc<dyn AccessTokenIssuer>,
+        access_token_ttl_seconds: i64,
+        refresh_token_ttl_seconds: i64,
+    ) -> Self {
+        Self {
+            user_repository,
+            identity_repository,
+            auth_session_repository,
+            customer_profile_repository,
+            seller_profile_repository,
+            tiktok_oauth,
+            refresh_tokens,
+            access_tokens,
+            access_token_ttl_seconds,
+            refresh_token_ttl_seconds,
+        }
+    }
+
+    pub async fn execute(
+        &self,
+        authorization_code: &str,
+    ) -> Result<AuthResponse, ApplicationError> {
+        let token = self.tiktok_oauth.exchange_code(authorization_code).await?;
+
+        if !token
+            .scope
+            .split(',')
+            .any(|scope| scope.trim() == "user.info.basic")
+        {
+            return Err(ApplicationError::Unauthorized);
+        }
+
+        let mut profile = self
+            .tiktok_oauth
+            .fetch_user_profile(&token.access_token)
+            .await?;
+
+        if profile.open_id != token.open_id {
+            return Err(ApplicationError::Unauthorized);
+        }
+
+        self.login_or_register(&mut profile).await
+    }
+
+    async fn login_or_register(
+        &self,
+        profile: &mut TikTokUserProfile,
+    ) -> Result<AuthResponse, ApplicationError> {
+        if let Some(identity) = self
+            .identity_repository
+            .find_by_provider_subject(AuthProvider::TikTok, &profile.open_id)
+            .await?
+        {
+            let user = self
+                .user_repository
+                .find_by_id(identity.user_id)
+                .await?
+                .ok_or(ApplicationError::Unauthorized)?;
+
+            if user.status != UserStatus::Active {
+                return Err(ApplicationError::Unauthorized);
+            }
+
+            let is_seller = self
+                .seller_profile_repository
+                .find_by_user_id(user.id)
+                .await?
+                .is_some();
+
+            return self
+                .create_auth_response(user.id, user.is_admin, is_seller)
+                .await;
+        }
+
+        let display_name = clean_optional(profile.display_name.take())
+            .or_else(|| Some("Utilisateur TikTok".to_owned()));
+        let avatar_url = clean_optional(profile.avatar_url.take());
+        let user = User::new(display_name, avatar_url);
+        let identity =
+            UserAuthIdentity::oauth(user.id, AuthProvider::TikTok, profile.open_id.clone());
+        let customer_profile = CustomerProfile::new(user.id, None);
+
+        self.user_repository.save(&user).await?;
+        self.identity_repository.save(&identity).await?;
+        self.customer_profile_repository
+            .save(&customer_profile)
+            .await?;
+
+        self.create_auth_response(user.id, user.is_admin, false)
+            .await
+    }
+
+    async fn create_auth_response(
+        &self,
+        user_id: uuid::Uuid,
+        is_admin: bool,
+        is_seller: bool,
+    ) -> Result<AuthResponse, ApplicationError> {
+        let refresh_token = self.refresh_tokens.generate();
+        let refresh_token_hash = self.refresh_tokens.hash(&refresh_token)?;
+        let expires_at = Utc::now() + Duration::seconds(self.refresh_token_ttl_seconds);
+        let session = AuthSession::new(user_id, refresh_token_hash, expires_at, None, None);
+        let access_token = self
+            .access_tokens
+            .issue_access_token(user_id, session.id, is_admin, is_seller)?;
+
+        self.auth_session_repository.save(&session).await?;
+
+        Ok(AuthResponse {
+            user_id,
+            session_id: session.id,
+            access_token,
+            refresh_token,
+            token_type: "Bearer",
+            expires_in_seconds: self.access_token_ttl_seconds,
+            is_seller,
+            is_admin,
+        })
+    }
 }
 
 impl RegisterUserUseCase {

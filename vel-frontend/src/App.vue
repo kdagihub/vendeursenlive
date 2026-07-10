@@ -12,7 +12,9 @@ const auth = useAuthStore()
     <header class="topbar">
       <RouterLink class="brand-link" to="/login" aria-label="VendeursEnLive">
         <img class="brand-logo" :src="logo" alt="" />
-        <span class="brand-name">VendeursEnLive</span>
+        <span class="brand-name">
+          <span>VendeursEn</span><span class="brand-name-accent">Live</span>
+        </span>
       </RouterLink>
 
       <nav class="topnav" aria-label="Navigation principale">

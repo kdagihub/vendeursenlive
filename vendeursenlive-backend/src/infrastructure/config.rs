@@ -79,6 +79,9 @@ pub struct TikTokConfig {
     pub redirect_uri: Option<String>,
     pub scopes: Vec<String>,
     pub auth_url: String,
+    pub token_url: String,
+    pub user_info_url: String,
+    pub success_redirect_url: String,
 }
 
 #[derive(Debug, Error)]
@@ -146,6 +149,18 @@ impl AppConfig {
                 auth_url: env_or_default(
                     "TIKTOK_AUTH_URL",
                     "https://www.tiktok.com/v2/auth/authorize/",
+                )?,
+                token_url: env_or_default(
+                    "TIKTOK_TOKEN_URL",
+                    "https://open.tiktokapis.com/v2/oauth/token/",
+                )?,
+                user_info_url: env_or_default(
+                    "TIKTOK_USER_INFO_URL",
+                    "https://open.tiktokapis.com/v2/user/info/",
+                )?,
+                success_redirect_url: env_or_default(
+                    "TIKTOK_SUCCESS_REDIRECT_URL",
+                    "http://localhost:5173/app",
                 )?,
             },
         })

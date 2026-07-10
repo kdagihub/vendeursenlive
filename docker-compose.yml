@@ -52,6 +52,9 @@ services:
       TIKTOK_REDIRECT_URI: ${TIKTOK_REDIRECT_URI:-http://localhost:8080/auth/tiktok/callback}
       TIKTOK_SCOPES: user.info.basic
       TIKTOK_AUTH_URL: https://www.tiktok.com/v2/auth/authorize/
+      TIKTOK_TOKEN_URL: https://open.tiktokapis.com/v2/oauth/token/
+      TIKTOK_USER_INFO_URL: https://open.tiktokapis.com/v2/user/info/
+      TIKTOK_SUCCESS_REDIRECT_URL: http://localhost:5173/app
       RUST_LOG: vendeursenlive_backend=debug,actix_web=info,sea_orm=info
     ports:
       - "8080:8080"

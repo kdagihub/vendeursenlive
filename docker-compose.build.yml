@@ -1,0 +1,18 @@
+services:
+  backend:
+    image: ${BACKEND_IMAGE:-ciacems/vel:backend-latest}
+    build:
+      context: ./vendeursenlive-backend
+      dockerfile: Dockerfile
+      platforms:
+        - linux/amd64
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-ciacems/vel:frontend-latest}
+    build:
+      context: ./vel-frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://api.vendeursenlive.shop}
+      platforms:
+        - linux/amd64

@@ -2,23 +2,19 @@
 import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
+import tiktokLogo from '@/assets/img/logo_blanc.jpeg'
 import { type AccountType, useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
 const auth = useAuthStore()
 
 const mode = ref<'login' | 'register'>('login')
-const identifierMode = ref<'email' | 'phone'>('email')
+const identifierMode = ref<'email' | 'phone'>('phone')
 const accountType = ref<AccountType>('customer')
 
-const modeOptions = [
-  { label: 'Connexion', value: 'login' },
-  { label: 'Inscription', value: 'register' },
-]
-
 const identifierOptions = [
-  { label: 'Email', value: 'email' },
   { label: 'Téléphone', value: 'phone' },
+  { label: 'Email', value: 'email' },
 ]
 
 const accountOptions = [
@@ -36,9 +32,7 @@ const registerForm = reactive({
   email: '',
   phoneNumber: '',
   password: '',
-  defaultLocation: '',
   shopName: '',
-  paymentLink: '',
 })
 
 const title = computed(() =>
@@ -72,16 +66,18 @@ async function submitRegister() {
       phone_number: identifierMode.value === 'phone' ? registerForm.phoneNumber.trim() : undefined,
       password: registerForm.password,
       account_type: accountType.value,
-      default_location:
-        accountType.value === 'customer' ? registerForm.defaultLocation.trim() : undefined,
       shop_name: accountType.value === 'seller' ? registerForm.shopName.trim() : undefined,
-      payment_link: accountType.value === 'seller' ? registerForm.paymentLink.trim() : undefined,
     })
 
     await router.push('/app')
   } catch {
     // The store exposes a user-facing error message.
   }
+}
+
+function switchMode(nextMode: 'login' | 'register') {
+  mode.value = nextMode
+  auth.error = null
 }
 </script>
 
@@ -96,26 +92,17 @@ async function submitRegister() {
       </template>
 
       <template #content>
-        <SelectButton
-          v-model="mode"
-          :allow-empty="false"
-          :options="modeOptions"
-          class="auth-mode-toggle"
-          option-label="label"
-          option-value="value"
-        />
-
         <Message v-if="auth.error" severity="error" class="form-message">
           {{ auth.error }}
         </Message>
 
         <form v-if="mode === 'login'" class="auth-form" @submit.prevent="submitLogin">
           <label class="field">
-            <span>Email ou téléphone</span>
+            <span>Téléphone ou email</span>
             <InputText
               v-model="loginForm.identifier"
               autocomplete="username"
-              placeholder="awa@example.com ou +2250700000000"
+              placeholder="+2250700000000 ou email@example.com"
               required
             />
           </label>
@@ -205,24 +192,10 @@ async function submitRegister() {
             option-value="value"
           />
 
-          <label v-if="accountType === 'customer'" class="field">
-            <span>Localisation par défaut</span>
-            <InputText v-model="registerForm.defaultLocation" placeholder="Cocody" />
-          </label>
-
-          <template v-else>
+          <template v-if="accountType === 'seller'">
             <label class="field">
               <span>Nom de la boutique</span>
               <InputText v-model="registerForm.shopName" placeholder="Boutique Awa" required />
-            </label>
-
-            <label class="field">
-              <span>Lien de paiement</span>
-              <InputText
-                v-model="registerForm.paymentLink"
-                placeholder="https://pay.wave.com/..."
-                type="url"
-              />
             </label>
           </template>
 
@@ -238,17 +211,31 @@ async function submitRegister() {
 
         <Button
           class="full-control tiktok-button"
-          label="Continuer avec TikTok"
-          outlined
-          severity="contrast"
+          aria-label="Continuer avec TikTok"
           type="button"
           @click="auth.startTikTokLogin"
-        />
+        >
+          <span class="tiktok-button-content">
+            <img class="tiktok-mark" :src="tiktokLogo" alt="" aria-hidden="true" />
+            <span>Continuer avec TikTok</span>
+          </span>
+        </Button>
 
         <p class="legal-note">
           En continuant, tu acceptes les <RouterLink to="/terms">CGU</RouterLink> et la
           <RouterLink to="/privacy">politique de confidentialité</RouterLink>.
         </p>
+
+        <div class="auth-switch">
+          <template v-if="mode === 'login'">
+            <span>Tu n'as pas de compte ?</span>
+            <button type="button" @click="switchMode('register')">S'inscrire</button>
+          </template>
+          <template v-else>
+            <span>Tu as déjà un compte ?</span>
+            <button type="button" @click="switchMode('login')">Se connecter</button>
+          </template>
+        </div>
       </template>
     </Card>
   </section>

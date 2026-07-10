@@ -19,6 +19,7 @@ use crate::{
         use_cases::auth::{
             ChangePasswordUseCase, ConfirmPasswordResetUseCase, LoginUserUseCase, LogoutUseCase,
             RefreshSessionUseCase, RegisterUserUseCase, RequestPasswordResetUseCase,
+            TikTokLoginUseCase,
         },
     },
     infrastructure::{
@@ -28,6 +29,7 @@ use crate::{
             SeaOrmPasswordResetTokenRepository, SeaOrmSellerProfileRepository,
             SeaOrmUserAuthIdentityRepository, SeaOrmUserRepository,
         },
+        oauth::ReqwestTikTokOAuthClient,
     },
     presentation::extractors::authenticated_user::AuthenticatedUser,
     AppState,
@@ -108,11 +110,6 @@ struct TikTokCallbackQuery {
     error_description: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
-struct TikTokCallbackResponse {
-    message: String,
-}
-
 async fn tiktok_callback(
     state: web::Data<AppState>,
     request: HttpRequest,
@@ -140,19 +137,35 @@ async fn tiktok_callback(
         return Err(ApplicationError::Unauthorized.into());
     }
 
-    let _authorization_code = query.code.as_deref().ok_or_else(|| {
+    let authorization_code = query.code.as_deref().ok_or_else(|| {
         ApplicationError::Validation("TikTok authorization code is missing".to_owned())
     })?;
+    let use_case = TikTokLoginUseCase::new(
+        Arc::new(SeaOrmUserRepository::new(state.db.clone())),
+        Arc::new(SeaOrmUserAuthIdentityRepository::new(state.db.clone())),
+        Arc::new(SeaOrmAuthSessionRepository::new(state.db.clone())),
+        Arc::new(SeaOrmCustomerProfileRepository::new(state.db.clone())),
+        Arc::new(SeaOrmSellerProfileRepository::new(state.db.clone())),
+        Arc::new(ReqwestTikTokOAuthClient::new(state.tiktok_config.clone())),
+        Arc::new(UuidRefreshTokenService),
+        Arc::new(state.jwt.clone()),
+        state.auth_config.access_token_ttl_seconds,
+        state.auth_config.refresh_token_ttl_seconds,
+    );
+    let response = use_case.execute(authorization_code).await?;
 
-    Ok(HttpResponse::NotImplemented()
-        .cookie(clear_cookie(
-            TIKTOK_STATE_COOKIE,
-            state.auth_config.cookie_secure,
-            state.auth_config.cookie_domain.clone(),
-        ))
-        .json(TikTokCallbackResponse {
-            message: "TikTok state validated; token exchange will be implemented next".to_owned(),
-        }))
+    Ok(auth_cookie_redirect_response(
+        HttpResponse::Found(),
+        &state,
+        response,
+        &state.tiktok_config.success_redirect_url,
+    )
+    .cookie(clear_cookie(
+        TIKTOK_STATE_COOKIE,
+        state.auth_config.cookie_secure,
+        state.auth_config.cookie_domain.clone(),
+    ))
+    .finish())
 }
 
 async fn register(
@@ -405,6 +418,49 @@ fn auth_cookie_response(
             is_seller: response.is_seller,
             is_admin: response.is_admin,
         })
+}
+
+fn auth_cookie_redirect_response(
+    mut builder: actix_web::HttpResponseBuilder,
+    state: &web::Data<AppState>,
+    response: AuthResponse,
+    redirect_url: &str,
+) -> actix_web::HttpResponseBuilder {
+    let access_cookie = auth_cookie(
+        ACCESS_TOKEN_COOKIE,
+        response.access_token,
+        state.auth_config.access_token_ttl_seconds,
+        state.auth_config.cookie_secure,
+        state.auth_config.cookie_domain.clone(),
+    );
+    let refresh_cookie = auth_cookie(
+        REFRESH_TOKEN_COOKIE,
+        response.refresh_token,
+        state.auth_config.refresh_token_ttl_seconds,
+        state.auth_config.cookie_secure,
+        state.auth_config.cookie_domain.clone(),
+    );
+    let refresh_session_cookie = auth_cookie(
+        REFRESH_SESSION_COOKIE,
+        response.session_id.to_string(),
+        state.auth_config.refresh_token_ttl_seconds,
+        state.auth_config.cookie_secure,
+        state.auth_config.cookie_domain.clone(),
+    );
+    let csrf_cookie = csrf_cookie(
+        new_csrf_token(),
+        state.auth_config.cookie_secure,
+        state.auth_config.cookie_domain.clone(),
+    );
+
+    builder
+        .insert_header((LOCATION, redirect_url))
+        .cookie(access_cookie)
+        .cookie(refresh_cookie)
+        .cookie(refresh_session_cookie)
+        .cookie(csrf_cookie);
+
+    builder
 }
 
 fn csrf_cookie(value: String, secure: bool, domain: Option<String>) -> Cookie<'static> {
