@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import tiktokLogo from '@/assets/img/logo_blanc.jpeg'
 import { type AccountType, useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
 
-const mode = ref<'login' | 'register'>('login')
+const mode = ref<'login' | 'register'>(route.query.mode === 'register' ? 'register' : 'login')
 const identifierMode = ref<'email' | 'phone'>('phone')
 const accountType = ref<AccountType>('customer')
 
@@ -52,7 +53,7 @@ async function submitLogin() {
       password: loginForm.password,
     })
 
-    await router.push('/app')
+    await router.push(authDestination())
   } catch {
     // The store exposes a user-facing error message.
   }
@@ -69,10 +70,15 @@ async function submitRegister() {
       shop_name: accountType.value === 'seller' ? registerForm.shopName.trim() : undefined,
     })
 
-    await router.push('/app')
+    await router.push(authDestination())
   } catch {
     // The store exposes a user-facing error message.
   }
+}
+
+function authDestination() {
+  const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/app'
+  return redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : '/app'
 }
 
 function switchMode(nextMode: 'login' | 'register') {
@@ -123,12 +129,7 @@ function switchMode(nextMode: 'login' | 'register') {
             <RouterLink to="/reset-password">Mot de passe oublié</RouterLink>
           </div>
 
-          <Button
-            class="full-control"
-            label="Se connecter"
-            :loading="auth.loading"
-            type="submit"
-          />
+          <Button class="full-control" label="Se connecter" :loading="auth.loading" type="submit" />
         </form>
 
         <form v-else class="auth-form" @submit.prevent="submitRegister">

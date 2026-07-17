@@ -2,9 +2,12 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import AppHomeView from '@/views/AppHomeView.vue'
 import AuthView from '@/views/AuthView.vue'
+import HomeView from '@/views/HomeView.vue'
+import LiveRoomView from '@/views/LiveRoomView.vue'
 import PrivacyView from '@/views/PrivacyView.vue'
 import ResetPasswordView from '@/views/ResetPasswordView.vue'
 import TermsView from '@/views/TermsView.vue'
+import VerifyEmailView from '@/views/VerifyEmailView.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const router = createRouter({
@@ -12,7 +15,19 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      redirect: '/login',
+      name: 'home',
+      component: HomeView,
+      meta: {
+        marketplace: true,
+      },
+    },
+    {
+      path: '/live/:id',
+      name: 'live-room',
+      component: LiveRoomView,
+      meta: {
+        marketplace: true,
+      },
     },
     {
       path: '/login',
@@ -23,6 +38,11 @@ const router = createRouter({
       path: '/reset-password',
       name: 'reset-password',
       component: ResetPasswordView,
+    },
+    {
+      path: '/verify-email',
+      name: 'verify-email',
+      component: VerifyEmailView,
     },
     {
       path: '/app',
@@ -44,7 +64,7 @@ const router = createRouter({
     },
     {
       path: '/:pathMatch(.*)*',
-      redirect: '/login',
+      redirect: '/',
     },
   ],
 })

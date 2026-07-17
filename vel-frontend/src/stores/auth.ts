@@ -13,6 +13,8 @@ export interface AuthUser {
   expires_in_seconds?: number
   is_seller: boolean
   is_admin: boolean
+  account_verified: boolean
+  verification_channel?: 'email' | 'phone' | null
 }
 
 export interface RegisterPayload {
@@ -37,6 +39,9 @@ export const useAuthStore = defineStore('auth', () => {
   const error = ref<string | null>(null)
 
   const isAuthenticated = computed(() => user.value !== null)
+  const requiresEmailVerification = computed(
+    () => user.value?.account_verified === false && user.value.verification_channel === 'email',
+  )
   const accountLabel = computed(() => {
     if (!user.value) return 'Invite'
     if (user.value.is_admin) return 'Administration'
@@ -105,9 +110,9 @@ export const useAuthStore = defineStore('auth', () => {
     })
   }
 
-  async function requestPasswordReset(identifier: string) {
+  async function requestPasswordReset(email: string) {
     await runAuthRequest(async () => {
-      await api.post('/auth/password-reset/request', { identifier })
+      await api.post('/auth/password-reset/request', { email })
     })
   }
 
@@ -117,6 +122,30 @@ export const useAuthStore = defineStore('auth', () => {
         reset_token: resetToken,
         new_password: newPassword,
       })
+    })
+  }
+
+  async function requestEmailVerification() {
+    await runAuthRequest(async () => {
+      await ensureCsrfToken()
+      await api.post('/auth/email-verification/request')
+    })
+  }
+
+  async function confirmEmailVerification(verificationToken: string) {
+    await runAuthRequest(async () => {
+      await api.post('/auth/email-verification/confirm', {
+        verification_token: verificationToken,
+      })
+
+      try {
+        await ensureCsrfToken()
+        const response = await api.post<AuthUser>('/auth/refresh')
+        user.value = response.data
+      } catch {
+        // The link may be opened on another device where no auth session exists.
+        user.value = null
+      }
     })
   }
 
@@ -142,6 +171,7 @@ export const useAuthStore = defineStore('auth', () => {
     accountLabel,
     changePassword,
     confirmPasswordReset,
+    confirmEmailVerification,
     error,
     fetchMe,
     isAuthenticated,
@@ -150,7 +180,9 @@ export const useAuthStore = defineStore('auth', () => {
     logout,
     refresh,
     register,
+    requestEmailVerification,
     requestPasswordReset,
+    requiresEmailVerification,
     startTikTokLogin,
     user,
   }

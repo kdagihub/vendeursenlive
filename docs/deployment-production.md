@@ -26,7 +26,17 @@ Points obligatoires:
 - `AUTH_COOKIE_SECURE=true`
 - `AUTH_COOKIE_DOMAIN=.vendeursenlive.shop`
 - `CORS_ALLOWED_ORIGINS=https://vendeursenlive.shop`
-- `AUTH_EXPOSE_PASSWORD_RESET_TOKEN=false`
+- `EMAIL_DELIVERY_ENABLED=true`
+- `SMTP_HOST=smtp.hostinger.com`
+- `SMTP_PORT=465`
+- `SMTP_USERNAME=contact@vendeursenlive.shop`
+- `SMTP_PASSWORD=<hostinger-smtp-password>`
+- `SMTP_FROM_EMAIL=contact@vendeursenlive.shop`
+- `SMTP_FROM_NAME=VendeursEnLive`
+- `PASSWORD_RESET_URL=https://vendeursenlive.shop/reset-password`
+- `EMAIL_VERIFICATION_URL=https://vendeursenlive.shop/verify-email`
+- `EMAIL_VERIFICATION_TOKEN_TTL_SECONDS=86400`
+- `EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS=60`
 - `TIKTOK_REDIRECT_URI=https://api.vendeursenlive.shop/auth/tiktok/callback`
 - `TIKTOK_SUCCESS_REDIRECT_URL=https://vendeursenlive.shop/app`
 
@@ -54,6 +64,9 @@ REDIS_URL=redis://default:<redis-password>@vel-redis-xju9f1:6379
 
 Ces variables sont à renseigner dans le service `backend` Dokploy. Le service
 `frontend` n'a pas besoin de `DATABASE_URL` ni de `REDIS_URL`.
+
+Le mot de passe SMTP doit rester uniquement dans les variables d'environnement
+Dokploy. S'il a été partagé ou copié dans un document, le régénérer avant usage.
 
 Si un mot de passe contient des caractères spéciaux (`@`, `:`, `/`, `#`, `%`, etc.),
 il faut l'encoder pour une URL avant de le mettre dans `DATABASE_URL` ou `REDIS_URL`.

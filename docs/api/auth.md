@@ -49,6 +49,7 @@ Routes mutantes qui exigent le header CSRF:
 - `POST /auth/refresh`
 - `POST /auth/logout`
 - `POST /auth/change-password`
+- `POST /auth/email-verification/request`
 
 Les routes d'inscription, login et reset password public n'exigent pas le header CSRF.
 
@@ -109,7 +110,9 @@ Reponse `201`: les cookies auth sont poses.
   "token_type": "Bearer",
   "expires_in_seconds": 900,
   "is_seller": false,
-  "is_admin": false
+  "is_admin": false,
+  "account_verified": false,
+  "verification_channel": "email"
 }
 ```
 
@@ -143,9 +146,14 @@ Reponse `200`:
   "user_id": "uuid",
   "session_id": "uuid",
   "is_seller": false,
-  "is_admin": false
+  "is_admin": false,
+  "account_verified": false,
+  "verification_channel": "email"
 }
 ```
+
+Une identite TikTok renvoie toujours `account_verified: true`. Une inscription email
+reste connectee mais les actions metier protegees sont refusees jusqu'a la verification.
 
 ### Refresh
 
@@ -189,7 +197,7 @@ POST /auth/password-reset/request
 
 ```json
 {
-  "identifier": "awa@example.com"
+  "email": "awa@example.com"
 }
 ```
 
@@ -201,7 +209,8 @@ Reponse `202`:
 }
 ```
 
-En dev seulement, si `AUTH_EXPOSE_PASSWORD_RESET_TOKEN=true`, la reponse contient aussi `reset_token`.
+Le backend ne renvoie jamais le token de reset. Si le compte existe, un email est
+envoye avec un lien vers `/reset-password?token=...`.
 
 ### Confirm Password Reset
 
@@ -211,12 +220,45 @@ POST /auth/password-reset/confirm
 
 ```json
 {
-  "reset_token": "token-recu-par-email-ou-sms",
+  "reset_token": "token-recu-par-email",
   "new_password": "Password789!"
 }
 ```
 
 Reponse `204`: mot de passe change, toutes les sessions de l'utilisateur sont revoquees.
+
+### Request Email Verification
+
+```http
+POST /auth/email-verification/request
+X-CSRF-Token: <vel_csrf_token>
+```
+
+Le compte doit etre authentifie avec une identite email non verifiee. L'adresse est
+deduite de la session et ne doit pas etre envoyee par le frontend.
+
+Reponse `202`:
+
+```json
+{
+  "message": "email verification instructions were sent"
+}
+```
+
+### Confirm Email Verification
+
+```http
+POST /auth/email-verification/confirm
+```
+
+```json
+{
+  "verification_token": "token-recu-par-email"
+}
+```
+
+Reponse `204`. Le frontend appelle ensuite `/auth/refresh` pour recevoir un JWT avec
+`account_verified: true`.
 
 ## TikTok Login
 
@@ -265,6 +307,7 @@ Set-Cookie: vel_csrf_token=...
 | `400` | Payload invalide, mot de passe trop court, champ requis absent |
 | `401` | Identifiants invalides, token absent/invalide |
 | `403` | CSRF absent ou invalide |
+| `403` | Action metier interdite tant que le compte n'est pas verifie |
 | `409` | Email ou telephone deja utilise |
 | `429` | Rate limit depasse |
 | `500` | Erreur infrastructure |

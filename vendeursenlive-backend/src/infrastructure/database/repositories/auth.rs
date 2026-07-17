@@ -1,26 +1,29 @@
 use async_trait::async_trait;
 use chrono::{DateTime, FixedOffset, Utc};
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
+};
 use uuid::Uuid;
 
 use crate::{
     domain::{
         entities::{
-            AuthProvider, AuthSession, CustomerProfile, PasswordResetToken, SellerProfile, User,
-            UserAuthIdentity, UserStatus,
+            AuthProvider, AuthSession, CustomerProfile, EmailVerificationToken, PasswordResetToken,
+            SellerProfile, User, UserAuthIdentity, UserStatus,
         },
         errors::DomainError,
         repositories::{
-            AuthSessionRepository, CustomerProfileRepository, PasswordResetTokenRepository,
-            SellerProfileRepository, UserAuthIdentityRepository, UserRepository,
+            AuthSessionRepository, CustomerProfileRepository, EmailVerificationTokenRepository,
+            PasswordResetTokenRepository, SellerProfileRepository, UserAuthIdentityRepository,
+            UserRepository,
         },
         value_objects::{EmailAddress, PhoneNumber},
     },
     infrastructure::{
         auth::password::repository_error,
         database::entities::{
-            auth_sessions, customer_profiles, password_reset_tokens, seller_profiles,
-            user_auth_identities, users,
+            auth_sessions, customer_profiles, email_verification_tokens, password_reset_tokens,
+            seller_profiles, user_auth_identities, users,
         },
     },
 };
@@ -135,6 +138,25 @@ impl UserAuthIdentityRepository for SeaOrmUserAuthIdentityRepository {
         Ok(())
     }
 
+    async fn mark_email_verified(&self, identity_id: Uuid) -> Result<(), DomainError> {
+        if let Some(model) = user_auth_identities::Entity::find_by_id(identity_id)
+            .one(&self.db)
+            .await
+            .map_err(repository_error)?
+        {
+            let mut active_model: user_auth_identities::ActiveModel = model.into();
+            active_model.email_verified = Set(true);
+            active_model.updated_at = Set(to_db_datetime(Utc::now()));
+            active_model
+                .update(&self.db)
+                .await
+                .map(|_| ())
+                .map_err(repository_error)?;
+        }
+
+        Ok(())
+    }
+
     async fn find_local_by_user_id(
         &self,
         user_id: Uuid,
@@ -150,6 +172,20 @@ impl UserAuthIdentityRepository for SeaOrmUserAuthIdentityRepository {
             .map_err(repository_error)?
             .map(identity_from_model)
             .transpose()
+    }
+
+    async fn find_all_by_user_id(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<UserAuthIdentity>, DomainError> {
+        user_auth_identities::Entity::find()
+            .filter(user_auth_identities::Column::UserId.eq(user_id))
+            .all(&self.db)
+            .await
+            .map_err(repository_error)?
+            .into_iter()
+            .map(identity_from_model)
+            .collect()
     }
 
     async fn find_by_email(&self, email: &str) -> Result<Option<UserAuthIdentity>, DomainError> {
@@ -188,6 +224,108 @@ impl UserAuthIdentityRepository for SeaOrmUserAuthIdentityRepository {
             .map_err(repository_error)?
             .map(identity_from_model)
             .transpose()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SeaOrmEmailVerificationTokenRepository {
+    db: DatabaseConnection,
+}
+
+impl SeaOrmEmailVerificationTokenRepository {
+    pub fn new(db: DatabaseConnection) -> Self {
+        Self { db }
+    }
+}
+
+#[async_trait]
+impl EmailVerificationTokenRepository for SeaOrmEmailVerificationTokenRepository {
+    async fn save(&self, token: &EmailVerificationToken) -> Result<(), DomainError> {
+        email_verification_tokens::ActiveModel {
+            id: Set(token.id),
+            user_auth_identity_id: Set(token.user_auth_identity_id),
+            token_hash: Set(token.token_hash.clone()),
+            used_at: Set(token.used_at.map(to_db_datetime)),
+            expires_at: Set(to_db_datetime(token.expires_at)),
+            created_at: Set(to_db_datetime(token.created_at)),
+        }
+        .insert(&self.db)
+        .await
+        .map(|_| ())
+        .map_err(repository_error)
+    }
+
+    async fn find_active_by_id(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<EmailVerificationToken>, DomainError> {
+        email_verification_tokens::Entity::find_by_id(id)
+            .filter(email_verification_tokens::Column::UsedAt.is_null())
+            .filter(email_verification_tokens::Column::ExpiresAt.gt(to_db_datetime(Utc::now())))
+            .one(&self.db)
+            .await
+            .map_err(repository_error)?
+            .map(email_verification_token_from_model)
+            .transpose()
+    }
+
+    async fn find_latest_for_identity(
+        &self,
+        identity_id: Uuid,
+    ) -> Result<Option<EmailVerificationToken>, DomainError> {
+        email_verification_tokens::Entity::find()
+            .filter(email_verification_tokens::Column::UserAuthIdentityId.eq(identity_id))
+            .order_by_desc(email_verification_tokens::Column::CreatedAt)
+            .one(&self.db)
+            .await
+            .map_err(repository_error)?
+            .map(email_verification_token_from_model)
+            .transpose()
+    }
+
+    async fn invalidate_for_identity(&self, identity_id: Uuid) -> Result<(), DomainError> {
+        let tokens = email_verification_tokens::Entity::find()
+            .filter(email_verification_tokens::Column::UserAuthIdentityId.eq(identity_id))
+            .filter(email_verification_tokens::Column::UsedAt.is_null())
+            .all(&self.db)
+            .await
+            .map_err(repository_error)?;
+
+        for model in tokens {
+            let mut active_model: email_verification_tokens::ActiveModel = model.into();
+            active_model.used_at = Set(Some(to_db_datetime(Utc::now())));
+            active_model
+                .update(&self.db)
+                .await
+                .map_err(repository_error)?;
+        }
+
+        Ok(())
+    }
+
+    async fn invalidate_other_for_identity(
+        &self,
+        identity_id: Uuid,
+        retained_token_id: Uuid,
+    ) -> Result<(), DomainError> {
+        let tokens = email_verification_tokens::Entity::find()
+            .filter(email_verification_tokens::Column::UserAuthIdentityId.eq(identity_id))
+            .filter(email_verification_tokens::Column::Id.ne(retained_token_id))
+            .filter(email_verification_tokens::Column::UsedAt.is_null())
+            .all(&self.db)
+            .await
+            .map_err(repository_error)?;
+
+        for model in tokens {
+            let mut active_model: email_verification_tokens::ActiveModel = model.into();
+            active_model.used_at = Set(Some(to_db_datetime(Utc::now())));
+            active_model
+                .update(&self.db)
+                .await
+                .map_err(repository_error)?;
+        }
+
+        Ok(())
     }
 }
 
@@ -486,6 +624,19 @@ fn password_reset_token_from_model(
     model: password_reset_tokens::Model,
 ) -> Result<PasswordResetToken, DomainError> {
     Ok(PasswordResetToken {
+        id: model.id,
+        user_auth_identity_id: model.user_auth_identity_id,
+        token_hash: model.token_hash,
+        used_at: model.used_at.map(from_db_datetime),
+        expires_at: from_db_datetime(model.expires_at),
+        created_at: from_db_datetime(model.created_at),
+    })
+}
+
+fn email_verification_token_from_model(
+    model: email_verification_tokens::Model,
+) -> Result<EmailVerificationToken, DomainError> {
+    Ok(EmailVerificationToken {
         id: model.id,
         user_auth_identity_id: model.user_auth_identity_id,
         token_hash: model.token_hash,

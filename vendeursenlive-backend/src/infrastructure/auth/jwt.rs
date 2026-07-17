@@ -14,6 +14,10 @@ pub struct AccessTokenClaims {
     pub sid: Uuid,
     pub is_admin: bool,
     pub is_seller: bool,
+    #[serde(default)]
+    pub account_verified: bool,
+    #[serde(default)]
+    pub verification_channel: Option<String>,
     pub exp: usize,
     pub iat: usize,
 }
@@ -40,6 +44,8 @@ impl JwtService {
         session_id: Uuid,
         is_admin: bool,
         is_seller: bool,
+        account_verified: bool,
+        verification_channel: Option<&str>,
     ) -> Result<String, jsonwebtoken::errors::Error> {
         let issued_at = Utc::now();
         let expires_at = issued_at + Duration::seconds(self.access_ttl_seconds);
@@ -48,6 +54,8 @@ impl JwtService {
             sid: session_id,
             is_admin,
             is_seller,
+            account_verified,
+            verification_channel: verification_channel.map(str::to_owned),
             exp: expires_at.timestamp() as usize,
             iat: issued_at.timestamp() as usize,
         };
@@ -75,8 +83,18 @@ impl AccessTokenIssuer for JwtService {
         session_id: Uuid,
         is_admin: bool,
         is_seller: bool,
+        account_verified: bool,
+        verification_channel: Option<&str>,
     ) -> Result<String, ApplicationError> {
-        JwtService::issue_access_token(self, user_id, session_id, is_admin, is_seller)
-            .map_err(|error| ApplicationError::Infrastructure(error.to_string()))
+        JwtService::issue_access_token(
+            self,
+            user_id,
+            session_id,
+            is_admin,
+            is_seller,
+            account_verified,
+            verification_channel,
+        )
+        .map_err(|error| ApplicationError::Infrastructure(error.to_string()))
     }
 }

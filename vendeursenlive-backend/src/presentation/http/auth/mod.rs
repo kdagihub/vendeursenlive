@@ -11,24 +11,25 @@ use uuid::Uuid;
 use crate::{
     application::{
         dtos::auth::{
-            AuthResponse, ChangePasswordRequest, ConfirmPasswordResetRequest, LoginRequest,
-            PasswordResetRequest, RefreshSessionRequest, RegisterRequest,
-            RequestPasswordResetCommand,
+            AuthResponse, ChangePasswordRequest, ConfirmEmailVerificationRequest,
+            ConfirmPasswordResetRequest, LoginRequest, PasswordResetRequest, RefreshSessionRequest,
+            RegisterRequest, RequestPasswordResetCommand,
         },
         errors::ApplicationError,
         use_cases::auth::{
-            ChangePasswordUseCase, ConfirmPasswordResetUseCase, LoginUserUseCase, LogoutUseCase,
-            RefreshSessionUseCase, RegisterUserUseCase, RequestPasswordResetUseCase,
-            TikTokLoginUseCase,
+            ChangePasswordUseCase, ConfirmEmailVerificationUseCase, ConfirmPasswordResetUseCase,
+            LoginUserUseCase, LogoutUseCase, RefreshSessionUseCase, RegisterUserUseCase,
+            RequestEmailVerificationUseCase, RequestPasswordResetUseCase, TikTokLoginUseCase,
         },
     },
     infrastructure::{
         auth::{password::Argon2PasswordHasher, refresh_token::UuidRefreshTokenService},
         database::repositories::auth::{
             SeaOrmAuthSessionRepository, SeaOrmCustomerProfileRepository,
-            SeaOrmPasswordResetTokenRepository, SeaOrmSellerProfileRepository,
-            SeaOrmUserAuthIdentityRepository, SeaOrmUserRepository,
+            SeaOrmEmailVerificationTokenRepository, SeaOrmPasswordResetTokenRepository,
+            SeaOrmSellerProfileRepository, SeaOrmUserAuthIdentityRepository, SeaOrmUserRepository,
         },
+        email::SmtpAuthEmailSender,
         oauth::ReqwestTikTokOAuthClient,
     },
     presentation::extractors::authenticated_user::AuthenticatedUser,
@@ -57,6 +58,14 @@ pub fn configure(config: &mut web::ServiceConfig) {
             .route(
                 "/password-reset/confirm",
                 web::post().to(confirm_password_reset),
+            )
+            .route(
+                "/email-verification/request",
+                web::post().to(request_email_verification),
+            )
+            .route(
+                "/email-verification/confirm",
+                web::post().to(confirm_email_verification),
             )
             .route("/tiktok/start", web::get().to(tiktok_start))
             .route("/tiktok/callback", web::get().to(tiktok_callback))
@@ -183,6 +192,13 @@ async fn register(
         Arc::new(state.jwt.clone()),
         state.auth_config.access_token_ttl_seconds,
         state.auth_config.refresh_token_ttl_seconds,
+        Arc::new(SeaOrmEmailVerificationTokenRepository::new(
+            state.db.clone(),
+        )),
+        Arc::new(SmtpAuthEmailSender::new(state.email_config.clone())),
+        Arc::new(UuidRefreshTokenService),
+        state.auth_config.email_verification_token_ttl_seconds,
+        state.email_config.email_verification_url.clone(),
     );
 
     let response = use_case.execute(payload.into_inner()).await?;
@@ -252,25 +268,20 @@ async fn request_password_reset(
         Arc::new(SeaOrmUserAuthIdentityRepository::new(state.db.clone())),
         Arc::new(SeaOrmPasswordResetTokenRepository::new(state.db.clone())),
         Arc::new(UuidRefreshTokenService),
+        Arc::new(SmtpAuthEmailSender::new(state.email_config.clone())),
         state.auth_config.password_reset_token_ttl_seconds,
+        state.email_config.password_reset_url.clone(),
     );
 
-    let response = use_case
+    use_case
         .execute(RequestPasswordResetCommand {
-            identifier: payload.identifier.clone(),
+            email: payload.email.clone(),
         })
         .await?;
-
-    let reset_token = state
-        .auth_config
-        .expose_password_reset_token
-        .then_some(response.reset_token)
-        .flatten();
 
     Ok(
         HttpResponse::Accepted().json(PasswordResetAcceptedResponse {
             message: "if the account exists, password reset instructions will be sent".to_owned(),
-            reset_token,
         }),
     )
 }
@@ -295,12 +306,53 @@ async fn confirm_password_reset(
     ))
 }
 
+async fn request_email_verification(
+    state: web::Data<AppState>,
+    user: AuthenticatedUser,
+) -> Result<HttpResponse, AuthHttpError> {
+    let use_case = RequestEmailVerificationUseCase::new(
+        Arc::new(SeaOrmUserAuthIdentityRepository::new(state.db.clone())),
+        Arc::new(SeaOrmEmailVerificationTokenRepository::new(
+            state.db.clone(),
+        )),
+        Arc::new(UuidRefreshTokenService),
+        Arc::new(SmtpAuthEmailSender::new(state.email_config.clone())),
+        state.auth_config.email_verification_token_ttl_seconds,
+        state.auth_config.email_verification_resend_cooldown_seconds,
+        state.email_config.email_verification_url.clone(),
+    );
+
+    use_case.execute(user.user_id).await?;
+
+    Ok(HttpResponse::Accepted().json(MessageResponse {
+        message: "email verification instructions were sent".to_owned(),
+    }))
+}
+
+async fn confirm_email_verification(
+    state: web::Data<AppState>,
+    payload: web::Json<ConfirmEmailVerificationRequest>,
+) -> Result<HttpResponse, AuthHttpError> {
+    let use_case = ConfirmEmailVerificationUseCase::new(
+        Arc::new(SeaOrmUserAuthIdentityRepository::new(state.db.clone())),
+        Arc::new(SeaOrmEmailVerificationTokenRepository::new(
+            state.db.clone(),
+        )),
+        Arc::new(UuidRefreshTokenService),
+    );
+
+    use_case.execute(payload.into_inner()).await?;
+    Ok(HttpResponse::NoContent().finish())
+}
+
 async fn me(user: AuthenticatedUser) -> HttpResponse {
     HttpResponse::Ok().json(CurrentUserResponse {
         user_id: user.user_id,
         session_id: user.session_id,
         is_seller: user.is_seller,
         is_admin: user.is_admin,
+        account_verified: user.account_verified,
+        verification_channel: user.verification_channel,
     })
 }
 
@@ -322,6 +374,7 @@ async fn refresh(
 
     let use_case = RefreshSessionUseCase::new(
         Arc::new(SeaOrmUserRepository::new(state.db.clone())),
+        Arc::new(SeaOrmUserAuthIdentityRepository::new(state.db.clone())),
         Arc::new(SeaOrmAuthSessionRepository::new(state.db.clone())),
         Arc::new(SeaOrmSellerProfileRepository::new(state.db.clone())),
         Arc::new(UuidRefreshTokenService),
@@ -356,6 +409,8 @@ struct AuthSessionResponse {
     expires_in_seconds: i64,
     is_seller: bool,
     is_admin: bool,
+    account_verified: bool,
+    verification_channel: Option<&'static str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -364,13 +419,18 @@ struct CurrentUserResponse {
     session_id: Uuid,
     is_seller: bool,
     is_admin: bool,
+    account_verified: bool,
+    verification_channel: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 struct PasswordResetAcceptedResponse {
     message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    reset_token: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct MessageResponse {
+    message: String,
 }
 
 fn auth_cookie_response(
@@ -417,6 +477,8 @@ fn auth_cookie_response(
             expires_in_seconds: response.expires_in_seconds,
             is_seller: response.is_seller,
             is_admin: response.is_admin,
+            account_verified: response.account_verified,
+            verification_channel: response.verification_channel,
         })
 }
 

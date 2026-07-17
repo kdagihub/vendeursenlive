@@ -3,8 +3,8 @@ use uuid::Uuid;
 
 use crate::domain::{
     entities::{
-        AuthProvider, AuthSession, CustomerProfile, EphemeralProduct, LiveSession, Order,
-        PasswordResetToken, SellerProfile, User, UserAuthIdentity,
+        AuthProvider, AuthSession, CustomerProfile, EmailVerificationToken, EphemeralProduct,
+        LiveSession, Order, PasswordResetToken, SellerProfile, User, UserAuthIdentity,
     },
     errors::DomainError,
 };
@@ -24,10 +24,15 @@ pub trait UserAuthIdentityRepository: Send + Sync {
         identity_id: Uuid,
         password_hash: String,
     ) -> Result<(), DomainError>;
+    async fn mark_email_verified(&self, identity_id: Uuid) -> Result<(), DomainError>;
     async fn find_local_by_user_id(
         &self,
         user_id: Uuid,
     ) -> Result<Option<UserAuthIdentity>, DomainError>;
+    async fn find_all_by_user_id(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Vec<UserAuthIdentity>, DomainError>;
     async fn find_by_email(&self, email: &str) -> Result<Option<UserAuthIdentity>, DomainError>;
     async fn find_by_phone_number(
         &self,
@@ -38,6 +43,25 @@ pub trait UserAuthIdentityRepository: Send + Sync {
         provider: AuthProvider,
         provider_subject: &str,
     ) -> Result<Option<UserAuthIdentity>, DomainError>;
+}
+
+#[async_trait]
+pub trait EmailVerificationTokenRepository: Send + Sync {
+    async fn save(&self, token: &EmailVerificationToken) -> Result<(), DomainError>;
+    async fn find_active_by_id(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<EmailVerificationToken>, DomainError>;
+    async fn find_latest_for_identity(
+        &self,
+        identity_id: Uuid,
+    ) -> Result<Option<EmailVerificationToken>, DomainError>;
+    async fn invalidate_for_identity(&self, identity_id: Uuid) -> Result<(), DomainError>;
+    async fn invalidate_other_for_identity(
+        &self,
+        identity_id: Uuid,
+        retained_token_id: Uuid,
+    ) -> Result<(), DomainError>;
 }
 
 #[async_trait]

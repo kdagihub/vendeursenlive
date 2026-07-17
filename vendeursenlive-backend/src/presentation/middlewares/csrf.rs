@@ -96,6 +96,7 @@ fn requires_csrf(request: &ServiceRequest) -> bool {
             | "/auth/login"
             | "/auth/password-reset/request"
             | "/auth/password-reset/confirm"
+            | "/auth/email-verification/confirm"
     )
 }
 

@@ -27,6 +27,22 @@ pub struct UserAuthIdentity {
 }
 
 impl UserAuthIdentity {
+    pub fn is_account_verified(&self) -> bool {
+        match self.provider {
+            AuthProvider::Google | AuthProvider::TikTok => true,
+            AuthProvider::Email => self.email_verified,
+            AuthProvider::Phone => self.phone_verified,
+        }
+    }
+
+    pub fn verification_channel(&self) -> Option<&'static str> {
+        match self.provider {
+            AuthProvider::Email if !self.email_verified => Some("email"),
+            AuthProvider::Phone if !self.phone_verified => Some("phone"),
+            _ => None,
+        }
+    }
+
     pub fn email(user_id: Uuid, email: EmailAddress, password_hash: String) -> Self {
         Self::new(
             user_id,
@@ -92,5 +108,44 @@ impl UserAuthIdentity {
             created_at: now,
             updated_at: now,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tiktok_identity_is_verified_without_email() {
+        let identity =
+            UserAuthIdentity::oauth(Uuid::now_v7(), AuthProvider::TikTok, "open-id".to_owned());
+
+        assert!(identity.is_account_verified());
+        assert_eq!(identity.verification_channel(), None);
+    }
+
+    #[test]
+    fn email_identity_requires_verification() {
+        let identity = UserAuthIdentity::email(
+            Uuid::now_v7(),
+            EmailAddress::new("client@example.com").expect("valid email"),
+            "password-hash".to_owned(),
+        );
+
+        assert!(!identity.is_account_verified());
+        assert_eq!(identity.verification_channel(), Some("email"));
+    }
+
+    #[test]
+    fn verified_email_identity_unlocks_account() {
+        let mut identity = UserAuthIdentity::email(
+            Uuid::now_v7(),
+            EmailAddress::new("seller@example.com").expect("valid email"),
+            "password-hash".to_owned(),
+        );
+        identity.email_verified = true;
+
+        assert!(identity.is_account_verified());
+        assert_eq!(identity.verification_channel(), None);
     }
 }

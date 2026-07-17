@@ -1,19 +1,20 @@
 use std::sync::Arc;
 
 use chrono::{Duration, Utc};
+use tracing::error;
 
-use crate::domain::entities::PasswordResetToken;
+use crate::domain::entities::{EmailVerificationToken, PasswordResetToken};
 use crate::{
     application::{
         dtos::auth::{
-            AccountType, AuthResponse, ChangePasswordRequest, ConfirmPasswordResetRequest,
-            LoginRequest, PasswordResetRequestResponse, RefreshSessionRequest, RegisterRequest,
+            AccountType, AuthResponse, ChangePasswordRequest, ConfirmEmailVerificationRequest,
+            ConfirmPasswordResetRequest, LoginRequest, RefreshSessionRequest, RegisterRequest,
             RequestPasswordResetCommand,
         },
         errors::ApplicationError,
         ports::auth::{
-            AccessTokenIssuer, PasswordHasher, RefreshTokenService, TikTokOAuthClient,
-            TikTokUserProfile,
+            AccessTokenIssuer, AuthEmailSender, PasswordHasher, RefreshTokenService,
+            TikTokOAuthClient, TikTokUserProfile,
         },
     },
     domain::{
@@ -22,8 +23,9 @@ use crate::{
             UserStatus,
         },
         repositories::{
-            AuthSessionRepository, CustomerProfileRepository, PasswordResetTokenRepository,
-            SellerProfileRepository, UserAuthIdentityRepository, UserRepository,
+            AuthSessionRepository, CustomerProfileRepository, EmailVerificationTokenRepository,
+            PasswordResetTokenRepository, SellerProfileRepository, UserAuthIdentityRepository,
+            UserRepository,
         },
         value_objects::{EmailAddress, PhoneNumber},
     },
@@ -40,6 +42,11 @@ pub struct RegisterUserUseCase {
     access_tokens: Arc<dyn AccessTokenIssuer>,
     access_token_ttl_seconds: i64,
     refresh_token_ttl_seconds: i64,
+    verification_token_repository: Arc<dyn EmailVerificationTokenRepository>,
+    email_sender: Arc<dyn AuthEmailSender>,
+    verification_tokens: Arc<dyn RefreshTokenService>,
+    verification_token_ttl_seconds: i64,
+    email_verification_url: String,
 }
 
 pub struct TikTokLoginUseCase {
@@ -169,7 +176,7 @@ impl TikTokLoginUseCase {
         let session = AuthSession::new(user_id, refresh_token_hash, expires_at, None, None);
         let access_token = self
             .access_tokens
-            .issue_access_token(user_id, session.id, is_admin, is_seller)?;
+            .issue_access_token(user_id, session.id, is_admin, is_seller, true, None)?;
 
         self.auth_session_repository.save(&session).await?;
 
@@ -182,6 +189,8 @@ impl TikTokLoginUseCase {
             expires_in_seconds: self.access_token_ttl_seconds,
             is_seller,
             is_admin,
+            account_verified: true,
+            verification_channel: None,
         })
     }
 }
@@ -199,6 +208,11 @@ impl RegisterUserUseCase {
         access_tokens: Arc<dyn AccessTokenIssuer>,
         access_token_ttl_seconds: i64,
         refresh_token_ttl_seconds: i64,
+        verification_token_repository: Arc<dyn EmailVerificationTokenRepository>,
+        email_sender: Arc<dyn AuthEmailSender>,
+        verification_tokens: Arc<dyn RefreshTokenService>,
+        verification_token_ttl_seconds: i64,
+        email_verification_url: String,
     ) -> Self {
         Self {
             user_repository,
@@ -211,6 +225,11 @@ impl RegisterUserUseCase {
             access_tokens,
             access_token_ttl_seconds,
             refresh_token_ttl_seconds,
+            verification_token_repository,
+            email_sender,
+            verification_tokens,
+            verification_token_ttl_seconds,
+            email_verification_url,
         }
     }
 
@@ -247,7 +266,11 @@ impl RegisterUserUseCase {
             }
         }
 
-        self.create_auth_response(user.id, user.is_admin, is_seller)
+        if identity.provider == AuthProvider::Email {
+            self.send_verification_email(&identity).await;
+        }
+
+        self.create_auth_response(user.id, user.is_admin, is_seller, &identity)
             .await
     }
 
@@ -308,14 +331,20 @@ impl RegisterUserUseCase {
         user_id: uuid::Uuid,
         is_admin: bool,
         is_seller: bool,
+        identity: &UserAuthIdentity,
     ) -> Result<AuthResponse, ApplicationError> {
         let refresh_token = self.refresh_tokens.generate();
         let refresh_token_hash = self.refresh_tokens.hash(&refresh_token)?;
         let expires_at = Utc::now() + Duration::seconds(self.refresh_token_ttl_seconds);
         let session = AuthSession::new(user_id, refresh_token_hash, expires_at, None, None);
-        let access_token = self
-            .access_tokens
-            .issue_access_token(user_id, session.id, is_admin, is_seller)?;
+        let access_token = self.access_tokens.issue_access_token(
+            user_id,
+            session.id,
+            is_admin,
+            is_seller,
+            identity.is_account_verified(),
+            identity.verification_channel(),
+        )?;
 
         self.auth_session_repository.save(&session).await?;
 
@@ -328,7 +357,38 @@ impl RegisterUserUseCase {
             expires_in_seconds: self.access_token_ttl_seconds,
             is_seller,
             is_admin,
+            account_verified: identity.is_account_verified(),
+            verification_channel: identity.verification_channel(),
         })
+    }
+
+    async fn send_verification_email(&self, identity: &UserAuthIdentity) {
+        let Some(email) = identity.email.as_ref() else {
+            return;
+        };
+        let verification_secret = self.verification_tokens.generate();
+        let result = async {
+            let token_hash = self.verification_tokens.hash(&verification_secret)?;
+            let expires_at = Utc::now() + Duration::seconds(self.verification_token_ttl_seconds);
+            let token = EmailVerificationToken::new(identity.id, token_hash, expires_at);
+            let raw_token = format!("{}.{}", token.id, verification_secret);
+            self.verification_token_repository.save(&token).await?;
+            self.email_sender
+                .send_email_verification(
+                    email.as_str(),
+                    &build_token_url(&self.email_verification_url, &raw_token),
+                )
+                .await?;
+            self.verification_token_repository
+                .invalidate_other_for_identity(identity.id, token.id)
+                .await?;
+            Ok::<(), ApplicationError>(())
+        }
+        .await;
+
+        if let Err(error) = result {
+            error!(%error, user_id = %identity.user_id, "failed to send registration verification email");
+        }
     }
 }
 
@@ -417,7 +477,9 @@ pub struct RequestPasswordResetUseCase {
     identity_repository: Arc<dyn UserAuthIdentityRepository>,
     reset_token_repository: Arc<dyn PasswordResetTokenRepository>,
     reset_tokens: Arc<dyn RefreshTokenService>,
+    email_sender: Arc<dyn AuthEmailSender>,
     token_ttl_seconds: i64,
+    password_reset_url: String,
 }
 
 impl RequestPasswordResetUseCase {
@@ -425,35 +487,36 @@ impl RequestPasswordResetUseCase {
         identity_repository: Arc<dyn UserAuthIdentityRepository>,
         reset_token_repository: Arc<dyn PasswordResetTokenRepository>,
         reset_tokens: Arc<dyn RefreshTokenService>,
+        email_sender: Arc<dyn AuthEmailSender>,
         token_ttl_seconds: i64,
+        password_reset_url: String,
     ) -> Self {
         Self {
             identity_repository,
             reset_token_repository,
             reset_tokens,
+            email_sender,
             token_ttl_seconds,
+            password_reset_url,
         }
     }
 
     pub async fn execute(
         &self,
         request: RequestPasswordResetCommand,
-    ) -> Result<PasswordResetRequestResponse, ApplicationError> {
-        let identifier = request.identifier.trim();
-        let identity = if identifier.contains('@') {
-            self.identity_repository.find_by_email(identifier).await?
-        } else {
-            self.identity_repository
-                .find_by_phone_number(identifier)
-                .await?
-        };
+    ) -> Result<(), ApplicationError> {
+        let email = EmailAddress::new(&request.email)?;
+        let identity = self
+            .identity_repository
+            .find_by_email(email.as_str())
+            .await?;
 
         let Some(identity) = identity else {
-            return Ok(PasswordResetRequestResponse { reset_token: None });
+            return Ok(());
         };
 
         if identity.password_hash.is_none() {
-            return Ok(PasswordResetRequestResponse { reset_token: None });
+            return Ok(());
         }
 
         let reset_token = self.reset_tokens.generate();
@@ -462,10 +525,28 @@ impl RequestPasswordResetUseCase {
         let token = PasswordResetToken::new(identity.id, reset_token_hash, expires_at);
 
         self.reset_token_repository.save(&token).await?;
+        if let Err(error) = self
+            .email_sender
+            .send_password_reset(email.as_str(), &self.build_reset_url(&reset_token))
+            .await
+        {
+            error!(%error, "failed to send password reset email");
+        }
 
-        Ok(PasswordResetRequestResponse {
-            reset_token: Some(reset_token),
-        })
+        Ok(())
+    }
+
+    fn build_reset_url(&self, reset_token: &str) -> String {
+        let separator = if self.password_reset_url.contains('?') {
+            '&'
+        } else {
+            '?'
+        };
+
+        format!(
+            "{}{}token={}",
+            self.password_reset_url, separator, reset_token
+        )
     }
 }
 
@@ -475,6 +556,141 @@ pub struct ConfirmPasswordResetUseCase {
     auth_session_repository: Arc<dyn AuthSessionRepository>,
     password_hasher: Arc<dyn PasswordHasher>,
     reset_tokens: Arc<dyn RefreshTokenService>,
+}
+
+pub struct RequestEmailVerificationUseCase {
+    identity_repository: Arc<dyn UserAuthIdentityRepository>,
+    token_repository: Arc<dyn EmailVerificationTokenRepository>,
+    tokens: Arc<dyn RefreshTokenService>,
+    email_sender: Arc<dyn AuthEmailSender>,
+    token_ttl_seconds: i64,
+    resend_cooldown_seconds: i64,
+    verification_url: String,
+}
+
+impl RequestEmailVerificationUseCase {
+    pub fn new(
+        identity_repository: Arc<dyn UserAuthIdentityRepository>,
+        token_repository: Arc<dyn EmailVerificationTokenRepository>,
+        tokens: Arc<dyn RefreshTokenService>,
+        email_sender: Arc<dyn AuthEmailSender>,
+        token_ttl_seconds: i64,
+        resend_cooldown_seconds: i64,
+        verification_url: String,
+    ) -> Self {
+        Self {
+            identity_repository,
+            token_repository,
+            tokens,
+            email_sender,
+            token_ttl_seconds,
+            resend_cooldown_seconds,
+            verification_url,
+        }
+    }
+
+    pub async fn execute(&self, user_id: uuid::Uuid) -> Result<(), ApplicationError> {
+        let identity = self
+            .identity_repository
+            .find_local_by_user_id(user_id)
+            .await?
+            .ok_or_else(|| {
+                ApplicationError::Validation("email verification is not required".to_owned())
+            })?;
+        let email = identity.email.as_ref().ok_or_else(|| {
+            ApplicationError::Validation(
+                "email verification is not available for this account".to_owned(),
+            )
+        })?;
+
+        if identity.email_verified {
+            return Ok(());
+        }
+
+        if self
+            .token_repository
+            .find_latest_for_identity(identity.id)
+            .await?
+            .is_some_and(|token| {
+                token.created_at > Utc::now() - Duration::seconds(self.resend_cooldown_seconds)
+            })
+        {
+            return Ok(());
+        }
+
+        let verification_secret = self.tokens.generate();
+        let token_hash = self.tokens.hash(&verification_secret)?;
+        let expires_at = Utc::now() + Duration::seconds(self.token_ttl_seconds);
+        let token = EmailVerificationToken::new(identity.id, token_hash, expires_at);
+        let raw_token = format!("{}.{}", token.id, verification_secret);
+
+        self.token_repository.save(&token).await?;
+        self.email_sender
+            .send_email_verification(
+                email.as_str(),
+                &build_token_url(&self.verification_url, &raw_token),
+            )
+            .await?;
+        self.token_repository
+            .invalidate_other_for_identity(identity.id, token.id)
+            .await?;
+        Ok(())
+    }
+}
+
+pub struct ConfirmEmailVerificationUseCase {
+    identity_repository: Arc<dyn UserAuthIdentityRepository>,
+    token_repository: Arc<dyn EmailVerificationTokenRepository>,
+    tokens: Arc<dyn RefreshTokenService>,
+}
+
+impl ConfirmEmailVerificationUseCase {
+    pub fn new(
+        identity_repository: Arc<dyn UserAuthIdentityRepository>,
+        token_repository: Arc<dyn EmailVerificationTokenRepository>,
+        tokens: Arc<dyn RefreshTokenService>,
+    ) -> Self {
+        Self {
+            identity_repository,
+            token_repository,
+            tokens,
+        }
+    }
+
+    pub async fn execute(
+        &self,
+        request: ConfirmEmailVerificationRequest,
+    ) -> Result<(), ApplicationError> {
+        let (token_id, verification_secret) =
+            parse_verification_token(&request.verification_token)?;
+        let token = self
+            .token_repository
+            .find_active_by_id(token_id)
+            .await?
+            .ok_or(ApplicationError::Unauthorized)?;
+
+        if !self.tokens.verify(verification_secret, &token.token_hash)? {
+            return Err(ApplicationError::Unauthorized);
+        }
+
+        let identity = self
+            .identity_repository
+            .find_by_id(token.user_auth_identity_id)
+            .await?
+            .ok_or(ApplicationError::Unauthorized)?;
+
+        if identity.provider != AuthProvider::Email {
+            return Err(ApplicationError::Unauthorized);
+        }
+
+        self.identity_repository
+            .mark_email_verified(identity.id)
+            .await?;
+        self.token_repository
+            .invalidate_for_identity(identity.id)
+            .await?;
+        Ok(())
+    }
 }
 
 impl ConfirmPasswordResetUseCase {
@@ -532,6 +748,7 @@ impl ConfirmPasswordResetUseCase {
 
 pub struct RefreshSessionUseCase {
     user_repository: Arc<dyn UserRepository>,
+    identity_repository: Arc<dyn UserAuthIdentityRepository>,
     auth_session_repository: Arc<dyn AuthSessionRepository>,
     seller_profile_repository: Arc<dyn SellerProfileRepository>,
     refresh_tokens: Arc<dyn RefreshTokenService>,
@@ -544,6 +761,7 @@ impl RefreshSessionUseCase {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         user_repository: Arc<dyn UserRepository>,
+        identity_repository: Arc<dyn UserAuthIdentityRepository>,
         auth_session_repository: Arc<dyn AuthSessionRepository>,
         seller_profile_repository: Arc<dyn SellerProfileRepository>,
         refresh_tokens: Arc<dyn RefreshTokenService>,
@@ -553,6 +771,7 @@ impl RefreshSessionUseCase {
     ) -> Self {
         Self {
             user_repository,
+            identity_repository,
             auth_session_repository,
             seller_profile_repository,
             refresh_tokens,
@@ -598,6 +817,11 @@ impl RefreshSessionUseCase {
             .find_by_user_id(user.id)
             .await?
             .is_some();
+        let identities = self
+            .identity_repository
+            .find_all_by_user_id(user.id)
+            .await?;
+        let (account_verified, verification_channel) = verification_status(&identities);
 
         self.auth_session_repository
             .revoke(existing_session.id)
@@ -607,9 +831,14 @@ impl RefreshSessionUseCase {
         let refresh_token_hash = self.refresh_tokens.hash(&refresh_token)?;
         let expires_at = Utc::now() + Duration::seconds(self.refresh_token_ttl_seconds);
         let session = AuthSession::new(user.id, refresh_token_hash, expires_at, None, None);
-        let access_token =
-            self.access_tokens
-                .issue_access_token(user.id, session.id, user.is_admin, is_seller)?;
+        let access_token = self.access_tokens.issue_access_token(
+            user.id,
+            session.id,
+            user.is_admin,
+            is_seller,
+            account_verified,
+            verification_channel,
+        )?;
 
         self.auth_session_repository.save(&session).await?;
 
@@ -622,6 +851,8 @@ impl RefreshSessionUseCase {
             expires_in_seconds: self.access_token_ttl_seconds,
             is_seller,
             is_admin: user.is_admin,
+            account_verified,
+            verification_channel,
         })
     }
 }
@@ -690,14 +921,21 @@ impl LoginUserUseCase {
             .find_by_user_id(user.id)
             .await?
             .is_some();
+        let account_verified = identity.is_account_verified();
+        let verification_channel = identity.verification_channel();
 
         let refresh_token = self.refresh_tokens.generate();
         let refresh_token_hash = self.refresh_tokens.hash(&refresh_token)?;
         let expires_at = Utc::now() + Duration::seconds(self.refresh_token_ttl_seconds);
         let session = AuthSession::new(user.id, refresh_token_hash, expires_at, None, None);
-        let access_token =
-            self.access_tokens
-                .issue_access_token(user.id, session.id, user.is_admin, is_seller)?;
+        let access_token = self.access_tokens.issue_access_token(
+            user.id,
+            session.id,
+            user.is_admin,
+            is_seller,
+            account_verified,
+            verification_channel,
+        )?;
 
         self.auth_session_repository.save(&session).await?;
 
@@ -710,6 +948,8 @@ impl LoginUserUseCase {
             expires_in_seconds: self.access_token_ttl_seconds,
             is_seller,
             is_admin: user.is_admin,
+            account_verified,
+            verification_channel,
         })
     }
 }
@@ -729,4 +969,57 @@ fn clean_optional(value: impl Into<Option<String>>) -> Option<String> {
         let value = value.trim().to_owned();
         (!value.is_empty()).then_some(value)
     })
+}
+
+fn build_token_url(base_url: &str, token: &str) -> String {
+    let separator = if base_url.contains('?') { '&' } else { '?' };
+    format!("{base_url}{separator}token={token}")
+}
+
+fn verification_status(identities: &[UserAuthIdentity]) -> (bool, Option<&'static str>) {
+    if identities.iter().any(UserAuthIdentity::is_account_verified) {
+        return (true, None);
+    }
+
+    (
+        false,
+        identities
+            .iter()
+            .find_map(UserAuthIdentity::verification_channel),
+    )
+}
+
+fn parse_verification_token(raw_token: &str) -> Result<(uuid::Uuid, &str), ApplicationError> {
+    let (id, secret) = raw_token
+        .split_once('.')
+        .ok_or(ApplicationError::Unauthorized)?;
+    let id = uuid::Uuid::parse_str(id).map_err(|_| ApplicationError::Unauthorized)?;
+
+    if secret.is_empty() {
+        return Err(ApplicationError::Unauthorized);
+    }
+
+    Ok((id, secret))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn verification_token_exposes_selector_and_secret() {
+        let id = uuid::Uuid::now_v7();
+        let raw_token = format!("{id}.secret.with.separator");
+
+        let (parsed_id, secret) = parse_verification_token(&raw_token).expect("valid token");
+
+        assert_eq!(parsed_id, id);
+        assert_eq!(secret, "secret.with.separator");
+    }
+
+    #[test]
+    fn malformed_verification_token_is_rejected() {
+        assert!(parse_verification_token("not-a-token").is_err());
+        assert!(parse_verification_token("not-a-uuid.secret").is_err());
+    }
 }

@@ -1,6 +1,10 @@
 use std::future::{ready, Ready};
 
-use actix_web::{dev::Payload, error::ErrorUnauthorized, web, Error, FromRequest, HttpRequest};
+use actix_web::{
+    dev::Payload,
+    error::{ErrorForbidden, ErrorUnauthorized},
+    web, Error, FromRequest, HttpRequest,
+};
 use uuid::Uuid;
 
 use crate::{presentation::http::auth::ACCESS_TOKEN_COOKIE, AppState};
@@ -11,6 +15,24 @@ pub struct AuthenticatedUser {
     pub session_id: Uuid,
     pub is_admin: bool,
     pub is_seller: bool,
+    pub account_verified: bool,
+    pub verification_channel: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct VerifiedUser(pub AuthenticatedUser);
+
+impl FromRequest for VerifiedUser {
+    type Error = Error;
+    type Future = Ready<Result<Self, Self::Error>>;
+
+    fn from_request(request: &HttpRequest, _: &mut Payload) -> Self::Future {
+        ready(match authenticated_user_from_request(request) {
+            Ok(user) if user.account_verified => Ok(Self(user)),
+            Ok(_) => Err(ErrorForbidden("account verification required")),
+            Err(error) => Err(error),
+        })
+    }
 }
 
 impl FromRequest for AuthenticatedUser {
@@ -18,27 +40,29 @@ impl FromRequest for AuthenticatedUser {
     type Future = Ready<Result<Self, Self::Error>>;
 
     fn from_request(request: &HttpRequest, _: &mut Payload) -> Self::Future {
-        let Some(state) = request.app_data::<web::Data<AppState>>() else {
-            return ready(Err(ErrorUnauthorized("missing application state")));
-        };
-
-        let Some(access_token) = access_token_from_request(request) else {
-            return ready(Err(ErrorUnauthorized("missing access token")));
-        };
-
-        let result = state
-            .jwt
-            .verify_access_token(&access_token)
-            .map(|claims| Self {
-                user_id: claims.sub,
-                session_id: claims.sid,
-                is_admin: claims.is_admin,
-                is_seller: claims.is_seller,
-            })
-            .map_err(|_| ErrorUnauthorized("invalid access token"));
-
-        ready(result)
+        ready(authenticated_user_from_request(request))
     }
+}
+
+fn authenticated_user_from_request(request: &HttpRequest) -> Result<AuthenticatedUser, Error> {
+    let state = request
+        .app_data::<web::Data<AppState>>()
+        .ok_or_else(|| ErrorUnauthorized("missing application state"))?;
+    let access_token = access_token_from_request(request)
+        .ok_or_else(|| ErrorUnauthorized("missing access token"))?;
+
+    state
+        .jwt
+        .verify_access_token(&access_token)
+        .map(|claims| AuthenticatedUser {
+            user_id: claims.sub,
+            session_id: claims.sid,
+            is_admin: claims.is_admin,
+            is_seller: claims.is_seller,
+            account_verified: claims.account_verified,
+            verification_channel: claims.verification_channel,
+        })
+        .map_err(|_| ErrorUnauthorized("invalid access token"))
 }
 
 fn access_token_from_request(request: &HttpRequest) -> Option<String> {

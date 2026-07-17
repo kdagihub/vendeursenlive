@@ -1,5 +1,6 @@
 pub mod auth_session;
 pub mod customer_profile;
+pub mod email_verification_token;
 pub mod ephemeral_product;
 pub mod live_session;
 pub mod order;
@@ -10,6 +11,7 @@ pub mod user_auth_identity;
 
 pub use auth_session::AuthSession;
 pub use customer_profile::CustomerProfile;
+pub use email_verification_token::EmailVerificationToken;
 pub use ephemeral_product::EphemeralProduct;
 pub use live_session::{LiveSession, LiveSessionStatus};
 pub use order::{Order, OrderStatus};

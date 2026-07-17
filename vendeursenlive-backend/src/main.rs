@@ -90,6 +90,7 @@ async fn bootstrap_state(config: &AppConfig) -> anyhow::Result<AppState> {
         jwt: JwtService::new(&config.auth),
         auth_config: config.auth.clone(),
         tiktok_config: config.tiktok.clone(),
+        email_config: config.email.clone(),
     })
 }
 

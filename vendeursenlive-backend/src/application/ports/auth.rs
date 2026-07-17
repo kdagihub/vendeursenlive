@@ -29,7 +29,23 @@ pub trait AccessTokenIssuer: Send + Sync {
         session_id: Uuid,
         is_admin: bool,
         is_seller: bool,
+        account_verified: bool,
+        verification_channel: Option<&str>,
     ) -> Result<String, ApplicationError>;
+}
+
+#[async_trait]
+pub trait AuthEmailSender: Send + Sync {
+    async fn send_password_reset(
+        &self,
+        to_email: &str,
+        reset_url: &str,
+    ) -> Result<(), ApplicationError>;
+    async fn send_email_verification(
+        &self,
+        to_email: &str,
+        verification_url: &str,
+    ) -> Result<(), ApplicationError>;
 }
 
 #[derive(Debug, Clone)]

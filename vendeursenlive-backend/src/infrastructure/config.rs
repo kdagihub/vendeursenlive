@@ -14,6 +14,7 @@ pub struct AppConfig {
     pub security: SecurityConfig,
     pub migrations: MigrationConfig,
     pub tiktok: TikTokConfig,
+    pub email: EmailConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,7 +49,8 @@ pub struct AuthConfig {
     pub cookie_secure: bool,
     pub cookie_domain: Option<String>,
     pub password_reset_token_ttl_seconds: i64,
-    pub expose_password_reset_token: bool,
+    pub email_verification_token_ttl_seconds: i64,
+    pub email_verification_resend_cooldown_seconds: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -82,6 +84,19 @@ pub struct TikTokConfig {
     pub token_url: String,
     pub user_info_url: String,
     pub success_redirect_url: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct EmailConfig {
+    pub delivery_enabled: bool,
+    pub smtp_host: Option<String>,
+    pub smtp_port: u16,
+    pub smtp_username: Option<String>,
+    pub smtp_password: Option<String>,
+    pub from_email: String,
+    pub from_name: String,
+    pub password_reset_url: String,
+    pub email_verification_url: String,
 }
 
 #[derive(Debug, Error)]
@@ -120,9 +135,13 @@ impl AppConfig {
                     "PASSWORD_RESET_TOKEN_TTL_SECONDS",
                     "1800",
                 )?,
-                expose_password_reset_token: parse_env(
-                    "AUTH_EXPOSE_PASSWORD_RESET_TOKEN",
-                    "false",
+                email_verification_token_ttl_seconds: parse_env(
+                    "EMAIL_VERIFICATION_TOKEN_TTL_SECONDS",
+                    "86400",
+                )?,
+                email_verification_resend_cooldown_seconds: parse_env(
+                    "EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS",
+                    "60",
                 )?,
             },
             cors: CorsConfig {
@@ -161,6 +180,23 @@ impl AppConfig {
                 success_redirect_url: env_or_default(
                     "TIKTOK_SUCCESS_REDIRECT_URL",
                     "http://localhost:5173/app",
+                )?,
+            },
+            email: EmailConfig {
+                delivery_enabled: parse_env("EMAIL_DELIVERY_ENABLED", "false")?,
+                smtp_host: optional_env("SMTP_HOST"),
+                smtp_port: parse_env("SMTP_PORT", "465")?,
+                smtp_username: optional_env("SMTP_USERNAME"),
+                smtp_password: optional_env("SMTP_PASSWORD"),
+                from_email: env_or_default("SMTP_FROM_EMAIL", "contact@vendeursenlive.shop")?,
+                from_name: env_or_default("SMTP_FROM_NAME", "VendeursEnLive")?,
+                password_reset_url: env_or_default(
+                    "PASSWORD_RESET_URL",
+                    "http://localhost:5173/reset-password",
+                )?,
+                email_verification_url: env_or_default(
+                    "EMAIL_VERIFICATION_URL",
+                    "http://localhost:5173/verify-email",
                 )?,
             },
         })

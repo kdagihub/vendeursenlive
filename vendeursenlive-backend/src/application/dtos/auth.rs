@@ -40,23 +40,23 @@ pub struct ChangePasswordRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct PasswordResetRequest {
-    pub identifier: String,
+    pub email: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct RequestPasswordResetCommand {
-    pub identifier: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct PasswordResetRequestResponse {
-    pub reset_token: Option<String>,
+    pub email: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ConfirmPasswordResetRequest {
     pub reset_token: String,
     pub new_password: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ConfirmEmailVerificationRequest {
+    pub verification_token: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -69,4 +69,6 @@ pub struct AuthResponse {
     pub expires_in_seconds: i64,
     pub is_seller: bool,
     pub is_admin: bool,
+    pub account_verified: bool,
+    pub verification_channel: Option<&'static str>,
 }
