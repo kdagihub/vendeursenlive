@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
 
-import logo from '@/assets/img/logo_v1.png'
+import logo from '@/assets/img/logo_vel_soft.png'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()

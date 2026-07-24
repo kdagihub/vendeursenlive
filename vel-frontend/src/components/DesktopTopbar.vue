@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Search } from '@lucide/vue'
 
-import tiktokLogo from '@/assets/img/tiktok-logo_sf.png'
+import tiktokLogo from '@/assets/img/tiktok-icon-official.png'
 import BrandMark from '@/components/BrandMark.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useLiveDiscoveryStore } from '@/stores/liveDiscovery'

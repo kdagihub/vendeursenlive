@@ -80,6 +80,12 @@ const categoryIcons = {
       >
         Devenir vendeur
       </RouterLink>
+      <nav class="mt-4 flex flex-wrap gap-x-3 gap-y-1 text-[11px]" aria-label="Liens légaux">
+        <RouterLink class="text-slate-500 hover:text-[#d92035]" to="/terms">CGU</RouterLink>
+        <RouterLink class="text-slate-500 hover:text-[#d92035]" to="/privacy">
+          Confidentialité
+        </RouterLink>
+      </nav>
     </div>
   </aside>
 </template>

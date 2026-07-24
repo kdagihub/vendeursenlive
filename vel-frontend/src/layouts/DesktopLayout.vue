@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import DesktopSidebar from '@/components/DesktopSidebar.vue'
 import DesktopTopbar from '@/components/DesktopTopbar.vue'
+import LegalFooter from '@/components/LegalFooter.vue'
 </script>
 
 <template>
@@ -11,6 +12,7 @@ import DesktopTopbar from '@/components/DesktopTopbar.vue'
     <DesktopSidebar />
     <main class="min-h-screen pt-18 pl-64">
       <slot />
+      <LegalFooter />
     </main>
   </div>
 </template>

@@ -7,7 +7,10 @@ defineProps<{
 </script>
 
 <template>
-  <RouterLink class="inline-flex min-w-0 items-center gap-2.5 text-[#17121f] no-underline" to="/">
+  <RouterLink
+    class="inline-flex min-w-0 items-center gap-2.5 text-[#17121f] no-underline dark:text-white"
+    to="/"
+  >
     <img
       class="h-10 w-10 shrink-0 rounded-full object-contain sm:h-11 sm:w-11"
       :src="logo"

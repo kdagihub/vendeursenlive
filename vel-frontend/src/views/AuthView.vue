@@ -2,7 +2,7 @@
 import { computed, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import tiktokLogo from '@/assets/img/logo_blanc.jpeg'
+import tiktokLogo from '@/assets/img/tiktok-icon-official.png'
 import { type AccountType, useAuthStore } from '@/stores/auth'
 
 const router = useRouter()

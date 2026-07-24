@@ -6,7 +6,7 @@ TikTok LIVE Embed access request for VendeursEnLive
 
 ## Company and product
 
-- Company: CIACEMS TECHNOLOGIES
+- Company: CIACEMS
 - Product: VendeursEnLive
 - Website: https://vendeursenlive.shop
 - Terms: https://vendeursenlive.shop/terms

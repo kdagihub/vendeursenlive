@@ -37,3 +37,6 @@ __screenshots__/
 
 # Vite
 *.timestamp-*-*.mjs
+
+# Source archive for TikTok brand assets; the app keeps only the optimized asset it uses.
+/src/assets/logo-pack/

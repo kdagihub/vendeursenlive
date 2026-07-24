@@ -19,6 +19,9 @@ const router = createRouter({
       component: HomeView,
       meta: {
         marketplace: true,
+        title: 'VendeursEnLive',
+        description:
+          'Découvre les vendeurs en direct et commande les produits présentés pendant leurs lives.',
       },
     },
     {
@@ -27,6 +30,7 @@ const router = createRouter({
       component: LiveRoomView,
       meta: {
         marketplace: true,
+        title: 'Live en direct',
       },
     },
     {
@@ -56,17 +60,39 @@ const router = createRouter({
       path: '/terms',
       name: 'terms',
       component: TermsView,
+      meta: {
+        marketplace: true,
+        title: 'Conditions générales d’utilisation',
+        description:
+          'Conditions applicables aux clients et vendeurs utilisant la marketplace VendeursEnLive.',
+      },
     },
     {
       path: '/privacy',
       name: 'privacy',
       component: PrivacyView,
+      meta: {
+        marketplace: true,
+        title: 'Politique de confidentialité',
+        description:
+          'Données collectées par VendeursEnLive, connexion TikTok, cookies et droits des utilisateurs.',
+      },
     },
     {
       path: '/:pathMatch(.*)*',
       redirect: '/',
     },
   ],
+})
+
+router.afterEach((to) => {
+  const title = typeof to.meta.title === 'string' ? to.meta.title : 'VendeursEnLive'
+  document.title = title === 'VendeursEnLive' ? title : `${title} | VendeursEnLive`
+
+  const description = document.querySelector<HTMLMetaElement>('meta[name="description"]')
+  if (description && typeof to.meta.description === 'string') {
+    description.content = to.meta.description
+  }
 })
 
 router.beforeEach(async (to) => {
