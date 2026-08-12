@@ -8,13 +8,16 @@ use crate::{
     application::{
         dtos::auth::{
             AccountType, AuthResponse, ChangePasswordRequest, ConfirmEmailVerificationRequest,
-            ConfirmPasswordResetRequest, LoginRequest, RefreshSessionRequest, RegisterRequest,
-            RequestPasswordResetCommand,
+            ConfirmPasswordResetRequest, CurrentUserProfileResponse, LoginRequest,
+            PhoneOtpChallengeResponse, PhoneOtpPurpose, RefreshSessionRequest, RegisterRequest,
+            RequestPasswordResetCommand, RequestPhoneOtpRequest, UpdateProfileRequest,
+            VerifyPhoneOtpRequest,
         },
         errors::ApplicationError,
         ports::auth::{
-            AccessTokenIssuer, AuthEmailSender, PasswordHasher, RefreshTokenService,
-            TikTokOAuthClient, TikTokUserProfile,
+            AccessTokenIssuer, AuthEmailSender, GoogleOAuthClient, GoogleUserProfile,
+            PasswordHasher, PhoneOtpChallenge, PhoneOtpChallengeStore, PhoneOtpProvider,
+            RefreshTokenService, TikTokOAuthClient, TikTokUserProfile,
         },
     },
     domain::{
@@ -56,6 +59,19 @@ pub struct TikTokLoginUseCase {
     customer_profile_repository: Arc<dyn CustomerProfileRepository>,
     seller_profile_repository: Arc<dyn SellerProfileRepository>,
     tiktok_oauth: Arc<dyn TikTokOAuthClient>,
+    refresh_tokens: Arc<dyn RefreshTokenService>,
+    access_tokens: Arc<dyn AccessTokenIssuer>,
+    access_token_ttl_seconds: i64,
+    refresh_token_ttl_seconds: i64,
+}
+
+pub struct GoogleLoginUseCase {
+    user_repository: Arc<dyn UserRepository>,
+    identity_repository: Arc<dyn UserAuthIdentityRepository>,
+    auth_session_repository: Arc<dyn AuthSessionRepository>,
+    customer_profile_repository: Arc<dyn CustomerProfileRepository>,
+    seller_profile_repository: Arc<dyn SellerProfileRepository>,
+    google_oauth: Arc<dyn GoogleOAuthClient>,
     refresh_tokens: Arc<dyn RefreshTokenService>,
     access_tokens: Arc<dyn AccessTokenIssuer>,
     access_token_ttl_seconds: i64,
@@ -191,6 +207,187 @@ impl TikTokLoginUseCase {
             is_admin,
             account_verified: true,
             verification_channel: None,
+            can_change_password: false,
+        })
+    }
+}
+
+impl GoogleLoginUseCase {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        user_repository: Arc<dyn UserRepository>,
+        identity_repository: Arc<dyn UserAuthIdentityRepository>,
+        auth_session_repository: Arc<dyn AuthSessionRepository>,
+        customer_profile_repository: Arc<dyn CustomerProfileRepository>,
+        seller_profile_repository: Arc<dyn SellerProfileRepository>,
+        google_oauth: Arc<dyn GoogleOAuthClient>,
+        refresh_tokens: Arc<dyn RefreshTokenService>,
+        access_tokens: Arc<dyn AccessTokenIssuer>,
+        access_token_ttl_seconds: i64,
+        refresh_token_ttl_seconds: i64,
+    ) -> Self {
+        Self {
+            user_repository,
+            identity_repository,
+            auth_session_repository,
+            customer_profile_repository,
+            seller_profile_repository,
+            google_oauth,
+            refresh_tokens,
+            access_tokens,
+            access_token_ttl_seconds,
+            refresh_token_ttl_seconds,
+        }
+    }
+
+    pub async fn execute(
+        &self,
+        authorization_code: &str,
+        account_type: AccountType,
+    ) -> Result<AuthResponse, ApplicationError> {
+        let token = self.google_oauth.exchange_code(authorization_code).await?;
+
+        if !token
+            .scope
+            .split_whitespace()
+            .any(|scope| scope == "openid")
+        {
+            return Err(ApplicationError::Unauthorized);
+        }
+
+        let profile = self
+            .google_oauth
+            .fetch_user_profile(&token.access_token)
+            .await?;
+
+        if !profile.email_verified {
+            return Err(ApplicationError::Unauthorized);
+        }
+
+        self.login_or_register(profile, account_type).await
+    }
+
+    async fn login_or_register(
+        &self,
+        profile: GoogleUserProfile,
+        account_type: AccountType,
+    ) -> Result<AuthResponse, ApplicationError> {
+        if let Some(identity) = self
+            .identity_repository
+            .find_by_provider_subject(AuthProvider::Google, &profile.subject)
+            .await?
+        {
+            return self.login_existing_user(identity.user_id).await;
+        }
+
+        let email = EmailAddress::new(profile.email)?;
+
+        if let Some(existing_identity) = self
+            .identity_repository
+            .find_by_email(email.as_str())
+            .await?
+        {
+            let user = self
+                .user_repository
+                .find_by_id(existing_identity.user_id)
+                .await?
+                .ok_or(ApplicationError::Unauthorized)?;
+            if user.status != UserStatus::Active {
+                return Err(ApplicationError::Unauthorized);
+            }
+
+            let google_identity =
+                UserAuthIdentity::google(existing_identity.user_id, profile.subject, None);
+            self.identity_repository.save(&google_identity).await?;
+            let is_seller = self
+                .seller_profile_repository
+                .find_by_user_id(user.id)
+                .await?
+                .is_some();
+            return self
+                .create_auth_response(user.id, user.is_admin, is_seller)
+                .await;
+        }
+
+        let display_name = clean_optional(profile.display_name);
+        let avatar_url = clean_optional(profile.avatar_url);
+        let user = User::new(display_name, avatar_url);
+        let identity = UserAuthIdentity::google(user.id, profile.subject, Some(email));
+
+        self.user_repository.save(&user).await?;
+        self.identity_repository.save(&identity).await?;
+
+        let is_seller = match account_type {
+            AccountType::Customer => {
+                self.customer_profile_repository
+                    .save(&CustomerProfile::new(user.id, None))
+                    .await?;
+                false
+            }
+            AccountType::Seller => {
+                self.seller_profile_repository
+                    .save(&SellerProfile::start_trial(user.id, None, None))
+                    .await?;
+                true
+            }
+        };
+
+        self.create_auth_response(user.id, user.is_admin, is_seller)
+            .await
+    }
+
+    async fn login_existing_user(
+        &self,
+        user_id: uuid::Uuid,
+    ) -> Result<AuthResponse, ApplicationError> {
+        let user = self
+            .user_repository
+            .find_by_id(user_id)
+            .await?
+            .ok_or(ApplicationError::Unauthorized)?;
+
+        if user.status != UserStatus::Active {
+            return Err(ApplicationError::Unauthorized);
+        }
+
+        let is_seller = self
+            .seller_profile_repository
+            .find_by_user_id(user.id)
+            .await?
+            .is_some();
+
+        self.create_auth_response(user.id, user.is_admin, is_seller)
+            .await
+    }
+
+    async fn create_auth_response(
+        &self,
+        user_id: uuid::Uuid,
+        is_admin: bool,
+        is_seller: bool,
+    ) -> Result<AuthResponse, ApplicationError> {
+        let refresh_token = self.refresh_tokens.generate();
+        let refresh_token_hash = self.refresh_tokens.hash(&refresh_token)?;
+        let expires_at = Utc::now() + Duration::seconds(self.refresh_token_ttl_seconds);
+        let session = AuthSession::new(user_id, refresh_token_hash, expires_at, None, None);
+        let access_token = self
+            .access_tokens
+            .issue_access_token(user_id, session.id, is_admin, is_seller, true, None)?;
+
+        self.auth_session_repository.save(&session).await?;
+
+        Ok(AuthResponse {
+            user_id,
+            session_id: session.id,
+            access_token,
+            refresh_token,
+            token_type: "Bearer",
+            expires_in_seconds: self.access_token_ttl_seconds,
+            is_seller,
+            is_admin,
+            account_verified: true,
+            verification_channel: None,
+            can_change_password: false,
         })
     }
 }
@@ -256,11 +453,7 @@ impl RegisterUserUseCase {
                 self.customer_profile_repository.save(&profile).await?;
             }
             AccountType::Seller => {
-                let shop_name = request.shop_name.and_then(clean_optional).ok_or_else(|| {
-                    ApplicationError::Validation(
-                        "shop_name is required for seller registration".to_owned(),
-                    )
-                })?;
+                let shop_name = request.shop_name.and_then(clean_optional);
                 let profile = SellerProfile::start_trial(user.id, shop_name, request.payment_link);
                 self.seller_profile_repository.save(&profile).await?;
             }
@@ -359,6 +552,7 @@ impl RegisterUserUseCase {
             is_admin,
             account_verified: identity.is_account_verified(),
             verification_channel: identity.verification_channel(),
+            can_change_password: true,
         })
     }
 
@@ -402,6 +596,478 @@ pub struct LoginUserUseCase {
     access_tokens: Arc<dyn AccessTokenIssuer>,
     access_token_ttl_seconds: i64,
     refresh_token_ttl_seconds: i64,
+}
+
+pub struct RequestPhoneOtpUseCase {
+    identity_repository: Arc<dyn UserAuthIdentityRepository>,
+    provider: Arc<dyn PhoneOtpProvider>,
+    challenge_store: Arc<dyn PhoneOtpChallengeStore>,
+    challenge_ttl_seconds: i64,
+    resend_cooldown_seconds: i64,
+}
+
+impl RequestPhoneOtpUseCase {
+    pub fn new(
+        identity_repository: Arc<dyn UserAuthIdentityRepository>,
+        provider: Arc<dyn PhoneOtpProvider>,
+        challenge_store: Arc<dyn PhoneOtpChallengeStore>,
+        challenge_ttl_seconds: i64,
+        resend_cooldown_seconds: i64,
+    ) -> Self {
+        Self {
+            identity_repository,
+            provider,
+            challenge_store,
+            challenge_ttl_seconds,
+            resend_cooldown_seconds,
+        }
+    }
+
+    pub async fn execute(
+        &self,
+        request: RequestPhoneOtpRequest,
+    ) -> Result<PhoneOtpChallengeResponse, ApplicationError> {
+        let phone_number = PhoneNumber::new(request.phone_number)?;
+        let existing_identity = self
+            .identity_repository
+            .find_by_phone_number(phone_number.as_str())
+            .await?;
+
+        match request.purpose {
+            PhoneOtpPurpose::Login if existing_identity.is_none() => {
+                return Err(ApplicationError::InvalidCredentials);
+            }
+            PhoneOtpPurpose::Register if existing_identity.is_some() => {
+                return Err(ApplicationError::Conflict(
+                    "phone number is already registered".to_owned(),
+                ));
+            }
+            _ => {}
+        }
+
+        let full_name = clean_optional(request.full_name);
+        let shop_name = clean_optional(request.shop_name);
+        if request.purpose == PhoneOtpPurpose::Register && request.account_type.is_none() {
+            return Err(ApplicationError::Validation(
+                "account_type is required for phone registration".to_owned(),
+            ));
+        }
+
+        if !self
+            .challenge_store
+            .reserve_send(phone_number.as_str(), self.resend_cooldown_seconds)
+            .await?
+        {
+            return Err(ApplicationError::TooManyRequests(
+                "wait before requesting another code".to_owned(),
+            ));
+        }
+
+        let provider_identity = phone_number.as_str().trim_start_matches('+');
+        let provider_token = match self.provider.request_otp(provider_identity).await {
+            Ok(token) => token,
+            Err(error) => {
+                self.challenge_store
+                    .release_send(phone_number.as_str())
+                    .await?;
+                return Err(error);
+            }
+        };
+        let challenge = PhoneOtpChallenge {
+            id: uuid::Uuid::new_v4(),
+            phone_number: phone_number.as_str().to_owned(),
+            provider_token,
+            purpose: request.purpose,
+            full_name,
+            account_type: request.account_type,
+            shop_name,
+        };
+
+        if let Err(error) = self
+            .challenge_store
+            .save(&challenge, self.challenge_ttl_seconds)
+            .await
+        {
+            self.challenge_store
+                .release_send(phone_number.as_str())
+                .await?;
+            return Err(error);
+        }
+
+        Ok(PhoneOtpChallengeResponse {
+            challenge_id: challenge.id,
+            expires_in_seconds: self.challenge_ttl_seconds,
+            resend_after_seconds: self.resend_cooldown_seconds,
+        })
+    }
+}
+
+pub struct VerifyPhoneOtpUseCase {
+    user_repository: Arc<dyn UserRepository>,
+    identity_repository: Arc<dyn UserAuthIdentityRepository>,
+    auth_session_repository: Arc<dyn AuthSessionRepository>,
+    customer_profile_repository: Arc<dyn CustomerProfileRepository>,
+    seller_profile_repository: Arc<dyn SellerProfileRepository>,
+    provider: Arc<dyn PhoneOtpProvider>,
+    challenge_store: Arc<dyn PhoneOtpChallengeStore>,
+    refresh_tokens: Arc<dyn RefreshTokenService>,
+    access_tokens: Arc<dyn AccessTokenIssuer>,
+    access_token_ttl_seconds: i64,
+    refresh_token_ttl_seconds: i64,
+    challenge_ttl_seconds: i64,
+    max_attempts: u32,
+}
+
+impl VerifyPhoneOtpUseCase {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        user_repository: Arc<dyn UserRepository>,
+        identity_repository: Arc<dyn UserAuthIdentityRepository>,
+        auth_session_repository: Arc<dyn AuthSessionRepository>,
+        customer_profile_repository: Arc<dyn CustomerProfileRepository>,
+        seller_profile_repository: Arc<dyn SellerProfileRepository>,
+        provider: Arc<dyn PhoneOtpProvider>,
+        challenge_store: Arc<dyn PhoneOtpChallengeStore>,
+        refresh_tokens: Arc<dyn RefreshTokenService>,
+        access_tokens: Arc<dyn AccessTokenIssuer>,
+        access_token_ttl_seconds: i64,
+        refresh_token_ttl_seconds: i64,
+        challenge_ttl_seconds: i64,
+        max_attempts: u32,
+    ) -> Self {
+        Self {
+            user_repository,
+            identity_repository,
+            auth_session_repository,
+            customer_profile_repository,
+            seller_profile_repository,
+            provider,
+            challenge_store,
+            refresh_tokens,
+            access_tokens,
+            access_token_ttl_seconds,
+            refresh_token_ttl_seconds,
+            challenge_ttl_seconds,
+            max_attempts,
+        }
+    }
+
+    pub async fn execute(
+        &self,
+        request: VerifyPhoneOtpRequest,
+    ) -> Result<AuthResponse, ApplicationError> {
+        let otp = request.otp.trim();
+        if !(4..=8).contains(&otp.len()) || !otp.chars().all(|character| character.is_ascii_digit())
+        {
+            return Err(ApplicationError::Validation(
+                "OTP must contain 4 to 8 digits".to_owned(),
+            ));
+        }
+
+        let challenge = self
+            .challenge_store
+            .find(request.challenge_id)
+            .await?
+            .ok_or(ApplicationError::Unauthorized)?;
+        let provider_identity = challenge.phone_number.trim_start_matches('+');
+        if !self
+            .provider
+            .verify_otp(provider_identity, otp, &challenge.provider_token)
+            .await?
+        {
+            let attempts = self
+                .challenge_store
+                .record_failed_attempt(challenge.id, self.challenge_ttl_seconds)
+                .await?;
+            if attempts >= self.max_attempts {
+                self.challenge_store.delete(challenge.id).await?;
+                return Err(ApplicationError::TooManyRequests(
+                    "too many invalid verification attempts".to_owned(),
+                ));
+            }
+            return Err(ApplicationError::InvalidCredentials);
+        }
+
+        let response = match challenge.purpose {
+            PhoneOtpPurpose::Login => self.login(&challenge).await?,
+            PhoneOtpPurpose::Register => self.register(&challenge).await?,
+        };
+        self.challenge_store.delete(challenge.id).await?;
+        Ok(response)
+    }
+
+    async fn login(&self, challenge: &PhoneOtpChallenge) -> Result<AuthResponse, ApplicationError> {
+        let mut identity = self
+            .identity_repository
+            .find_by_phone_number(&challenge.phone_number)
+            .await?
+            .ok_or(ApplicationError::InvalidCredentials)?;
+        if !identity.phone_verified {
+            self.identity_repository
+                .mark_phone_verified(identity.id)
+                .await?;
+            identity.phone_verified = true;
+        }
+        let user = self
+            .user_repository
+            .find_by_id(identity.user_id)
+            .await?
+            .ok_or(ApplicationError::InvalidCredentials)?;
+        if user.status != UserStatus::Active {
+            return Err(ApplicationError::Unauthorized);
+        }
+        let is_seller = self
+            .seller_profile_repository
+            .find_by_user_id(user.id)
+            .await?
+            .is_some();
+        self.create_auth_response(&user, is_seller).await
+    }
+
+    async fn register(
+        &self,
+        challenge: &PhoneOtpChallenge,
+    ) -> Result<AuthResponse, ApplicationError> {
+        if self
+            .identity_repository
+            .find_by_phone_number(&challenge.phone_number)
+            .await?
+            .is_some()
+        {
+            return Err(ApplicationError::Conflict(
+                "phone number is already registered".to_owned(),
+            ));
+        }
+
+        let phone_number = PhoneNumber::new(&challenge.phone_number)?;
+        let user = User::new(challenge.full_name.clone(), None);
+        let identity = UserAuthIdentity::verified_phone(user.id, phone_number);
+        let account_type = challenge
+            .account_type
+            .ok_or_else(|| ApplicationError::Validation("account_type is required".to_owned()))?;
+
+        self.user_repository.save(&user).await?;
+        self.identity_repository.save(&identity).await?;
+        let is_seller = match account_type {
+            AccountType::Customer => {
+                self.customer_profile_repository
+                    .save(&CustomerProfile::new(user.id, None))
+                    .await?;
+                false
+            }
+            AccountType::Seller => {
+                self.seller_profile_repository
+                    .save(&SellerProfile::start_trial(
+                        user.id,
+                        challenge.shop_name.clone(),
+                        None,
+                    ))
+                    .await?;
+                true
+            }
+        };
+
+        self.create_auth_response(&user, is_seller).await
+    }
+
+    async fn create_auth_response(
+        &self,
+        user: &User,
+        is_seller: bool,
+    ) -> Result<AuthResponse, ApplicationError> {
+        let refresh_token = self.refresh_tokens.generate();
+        let refresh_token_hash = self.refresh_tokens.hash(&refresh_token)?;
+        let expires_at = Utc::now() + Duration::seconds(self.refresh_token_ttl_seconds);
+        let session = AuthSession::new(user.id, refresh_token_hash, expires_at, None, None);
+        let access_token = self.access_tokens.issue_access_token(
+            user.id,
+            session.id,
+            user.is_admin,
+            is_seller,
+            true,
+            None,
+        )?;
+        self.auth_session_repository.save(&session).await?;
+
+        Ok(AuthResponse {
+            user_id: user.id,
+            session_id: session.id,
+            access_token,
+            refresh_token,
+            token_type: "Bearer",
+            expires_in_seconds: self.access_token_ttl_seconds,
+            is_seller,
+            is_admin: user.is_admin,
+            account_verified: true,
+            verification_channel: None,
+            can_change_password: false,
+        })
+    }
+}
+
+pub struct UpdateProfileUseCase {
+    user_repository: Arc<dyn UserRepository>,
+    seller_profile_repository: Arc<dyn SellerProfileRepository>,
+}
+
+pub struct GetCurrentUserProfileUseCase {
+    user_repository: Arc<dyn UserRepository>,
+    identity_repository: Arc<dyn UserAuthIdentityRepository>,
+    customer_profile_repository: Arc<dyn CustomerProfileRepository>,
+    seller_profile_repository: Arc<dyn SellerProfileRepository>,
+}
+
+impl GetCurrentUserProfileUseCase {
+    pub fn new(
+        user_repository: Arc<dyn UserRepository>,
+        identity_repository: Arc<dyn UserAuthIdentityRepository>,
+        customer_profile_repository: Arc<dyn CustomerProfileRepository>,
+        seller_profile_repository: Arc<dyn SellerProfileRepository>,
+    ) -> Self {
+        Self {
+            user_repository,
+            identity_repository,
+            customer_profile_repository,
+            seller_profile_repository,
+        }
+    }
+
+    pub async fn execute(
+        &self,
+        user_id: uuid::Uuid,
+        session_id: uuid::Uuid,
+    ) -> Result<CurrentUserProfileResponse, ApplicationError> {
+        let user = self
+            .user_repository
+            .find_by_id(user_id)
+            .await?
+            .ok_or(ApplicationError::Unauthorized)?;
+        let identities = self
+            .identity_repository
+            .find_all_by_user_id(user_id)
+            .await?;
+        let seller_profile = self
+            .seller_profile_repository
+            .find_by_user_id(user_id)
+            .await?;
+        let customer_profile = self
+            .customer_profile_repository
+            .find_by_user_id(user_id)
+            .await?;
+
+        let (account_verified, verification_channel) = verification_status(&identities);
+        let email = identities.iter().find_map(|identity| {
+            identity
+                .email
+                .as_ref()
+                .map(|email| email.as_str().to_owned())
+        });
+        let phone_number = identities.iter().find_map(|identity| {
+            identity
+                .phone_number
+                .as_ref()
+                .map(|phone| phone.as_str().to_owned())
+        });
+        let can_change_password = identities
+            .iter()
+            .any(|identity| identity.password_hash.is_some());
+        let mut auth_methods = identities
+            .iter()
+            .map(|identity| match identity.provider {
+                AuthProvider::Email => "email",
+                AuthProvider::Phone => "phone",
+                AuthProvider::Google => "google",
+                AuthProvider::TikTok => "tiktok",
+            })
+            .collect::<Vec<_>>();
+        auth_methods.sort_unstable();
+        auth_methods.dedup();
+
+        Ok(CurrentUserProfileResponse {
+            user_id: user.id,
+            session_id,
+            full_name: user.full_name,
+            avatar_url: user.avatar_url,
+            email,
+            phone_number,
+            is_seller: seller_profile.is_some(),
+            is_admin: user.is_admin,
+            account_status: match user.status {
+                UserStatus::Active => "active",
+                UserStatus::Disabled => "disabled",
+            },
+            account_verified,
+            verification_channel,
+            can_change_password,
+            auth_methods,
+            shop_name: seller_profile.and_then(|profile| profile.shop_name),
+            default_location: customer_profile.and_then(|profile| profile.default_location),
+            member_since: user.created_at,
+        })
+    }
+}
+
+impl UpdateProfileUseCase {
+    pub fn new(
+        user_repository: Arc<dyn UserRepository>,
+        seller_profile_repository: Arc<dyn SellerProfileRepository>,
+    ) -> Self {
+        Self {
+            user_repository,
+            seller_profile_repository,
+        }
+    }
+
+    pub async fn execute(
+        &self,
+        user_id: uuid::Uuid,
+        is_seller: bool,
+        request: UpdateProfileRequest,
+    ) -> Result<(), ApplicationError> {
+        let full_name = clean_optional(request.full_name);
+        let shop_name = clean_optional(request.shop_name);
+
+        if full_name
+            .as_ref()
+            .is_some_and(|value| value.chars().count() > 255)
+        {
+            return Err(ApplicationError::Validation(
+                "full_name must contain at most 255 characters".to_owned(),
+            ));
+        }
+        if shop_name
+            .as_ref()
+            .is_some_and(|value| value.chars().count() > 255)
+        {
+            return Err(ApplicationError::Validation(
+                "shop_name must contain at most 255 characters".to_owned(),
+            ));
+        }
+
+        if full_name.is_none() && shop_name.is_none() {
+            return Err(ApplicationError::Validation(
+                "full_name or shop_name is required".to_owned(),
+            ));
+        }
+        if shop_name.is_some() && !is_seller {
+            return Err(ApplicationError::Validation(
+                "shop_name is only available for seller profiles".to_owned(),
+            ));
+        }
+
+        if let Some(full_name) = full_name {
+            self.user_repository
+                .update_full_name(user_id, full_name)
+                .await?;
+        }
+        if let Some(shop_name) = shop_name {
+            self.seller_profile_repository
+                .update_shop_name(user_id, shop_name)
+                .await?;
+        }
+
+        Ok(())
+    }
 }
 
 pub struct LogoutUseCase {
@@ -822,6 +1488,9 @@ impl RefreshSessionUseCase {
             .find_all_by_user_id(user.id)
             .await?;
         let (account_verified, verification_channel) = verification_status(&identities);
+        let can_change_password = identities
+            .iter()
+            .any(|identity| identity.password_hash.is_some());
 
         self.auth_session_repository
             .revoke(existing_session.id)
@@ -853,6 +1522,7 @@ impl RefreshSessionUseCase {
             is_admin: user.is_admin,
             account_verified,
             verification_channel,
+            can_change_password,
         })
     }
 }
@@ -888,8 +1558,10 @@ impl LoginUserUseCase {
         let identity = if identifier.contains('@') {
             self.identity_repository.find_by_email(identifier).await?
         } else {
+            let phone_number =
+                PhoneNumber::new(identifier).map_err(|_| ApplicationError::InvalidCredentials)?;
             self.identity_repository
-                .find_by_phone_number(identifier)
+                .find_by_phone_number(phone_number.as_str())
                 .await?
         }
         .ok_or(ApplicationError::InvalidCredentials)?;
@@ -950,6 +1622,7 @@ impl LoginUserUseCase {
             is_admin: user.is_admin,
             account_verified,
             verification_channel,
+            can_change_password: true,
         })
     }
 }
@@ -1005,6 +1678,338 @@ fn parse_verification_token(raw_token: &str) -> Result<(uuid::Uuid, &str), Appli
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_trait::async_trait;
+    use std::sync::Mutex;
+
+    use crate::domain::errors::DomainError;
+
+    #[derive(Default)]
+    struct EmptyIdentityRepository;
+
+    #[async_trait]
+    impl UserAuthIdentityRepository for EmptyIdentityRepository {
+        async fn save(&self, _identity: &UserAuthIdentity) -> Result<(), DomainError> {
+            Ok(())
+        }
+
+        async fn find_by_id(
+            &self,
+            _id: uuid::Uuid,
+        ) -> Result<Option<UserAuthIdentity>, DomainError> {
+            Ok(None)
+        }
+
+        async fn update_password_hash(
+            &self,
+            _identity_id: uuid::Uuid,
+            _password_hash: String,
+        ) -> Result<(), DomainError> {
+            Ok(())
+        }
+
+        async fn mark_email_verified(&self, _identity_id: uuid::Uuid) -> Result<(), DomainError> {
+            Ok(())
+        }
+
+        async fn mark_phone_verified(&self, _identity_id: uuid::Uuid) -> Result<(), DomainError> {
+            Ok(())
+        }
+
+        async fn find_local_by_user_id(
+            &self,
+            _user_id: uuid::Uuid,
+        ) -> Result<Option<UserAuthIdentity>, DomainError> {
+            Ok(None)
+        }
+
+        async fn find_all_by_user_id(
+            &self,
+            _user_id: uuid::Uuid,
+        ) -> Result<Vec<UserAuthIdentity>, DomainError> {
+            Ok(Vec::new())
+        }
+
+        async fn find_by_email(
+            &self,
+            _email: &str,
+        ) -> Result<Option<UserAuthIdentity>, DomainError> {
+            Ok(None)
+        }
+
+        async fn find_by_phone_number(
+            &self,
+            _phone_number: &str,
+        ) -> Result<Option<UserAuthIdentity>, DomainError> {
+            Ok(None)
+        }
+
+        async fn find_by_provider_subject(
+            &self,
+            _provider: AuthProvider,
+            _provider_subject: &str,
+        ) -> Result<Option<UserAuthIdentity>, DomainError> {
+            Ok(None)
+        }
+    }
+
+    struct ProfileUserRepository {
+        user: User,
+    }
+
+    #[async_trait]
+    impl UserRepository for ProfileUserRepository {
+        async fn save(&self, _user: &User) -> Result<(), DomainError> {
+            Ok(())
+        }
+
+        async fn find_by_id(&self, id: uuid::Uuid) -> Result<Option<User>, DomainError> {
+            Ok((self.user.id == id).then(|| self.user.clone()))
+        }
+
+        async fn update_full_name(
+            &self,
+            _id: uuid::Uuid,
+            _full_name: String,
+        ) -> Result<(), DomainError> {
+            Ok(())
+        }
+    }
+
+    struct ProfileIdentityRepository {
+        identities: Vec<UserAuthIdentity>,
+    }
+
+    #[async_trait]
+    impl UserAuthIdentityRepository for ProfileIdentityRepository {
+        async fn save(&self, _identity: &UserAuthIdentity) -> Result<(), DomainError> {
+            Ok(())
+        }
+
+        async fn find_by_id(
+            &self,
+            id: uuid::Uuid,
+        ) -> Result<Option<UserAuthIdentity>, DomainError> {
+            Ok(self
+                .identities
+                .iter()
+                .find(|identity| identity.id == id)
+                .cloned())
+        }
+
+        async fn update_password_hash(
+            &self,
+            _identity_id: uuid::Uuid,
+            _password_hash: String,
+        ) -> Result<(), DomainError> {
+            Ok(())
+        }
+
+        async fn mark_email_verified(&self, _identity_id: uuid::Uuid) -> Result<(), DomainError> {
+            Ok(())
+        }
+
+        async fn mark_phone_verified(&self, _identity_id: uuid::Uuid) -> Result<(), DomainError> {
+            Ok(())
+        }
+
+        async fn find_local_by_user_id(
+            &self,
+            user_id: uuid::Uuid,
+        ) -> Result<Option<UserAuthIdentity>, DomainError> {
+            Ok(self
+                .identities
+                .iter()
+                .find(|identity| {
+                    identity.user_id == user_id
+                        && matches!(identity.provider, AuthProvider::Email | AuthProvider::Phone)
+                })
+                .cloned())
+        }
+
+        async fn find_all_by_user_id(
+            &self,
+            user_id: uuid::Uuid,
+        ) -> Result<Vec<UserAuthIdentity>, DomainError> {
+            Ok(self
+                .identities
+                .iter()
+                .filter(|identity| identity.user_id == user_id)
+                .cloned()
+                .collect())
+        }
+
+        async fn find_by_email(
+            &self,
+            email: &str,
+        ) -> Result<Option<UserAuthIdentity>, DomainError> {
+            Ok(self
+                .identities
+                .iter()
+                .find(|identity| {
+                    identity
+                        .email
+                        .as_ref()
+                        .is_some_and(|value| value.as_str() == email)
+                })
+                .cloned())
+        }
+
+        async fn find_by_phone_number(
+            &self,
+            phone_number: &str,
+        ) -> Result<Option<UserAuthIdentity>, DomainError> {
+            Ok(self
+                .identities
+                .iter()
+                .find(|identity| {
+                    identity
+                        .phone_number
+                        .as_ref()
+                        .is_some_and(|value| value.as_str() == phone_number)
+                })
+                .cloned())
+        }
+
+        async fn find_by_provider_subject(
+            &self,
+            provider: AuthProvider,
+            provider_subject: &str,
+        ) -> Result<Option<UserAuthIdentity>, DomainError> {
+            Ok(self
+                .identities
+                .iter()
+                .find(|identity| {
+                    identity.provider == provider
+                        && identity.provider_subject.as_deref() == Some(provider_subject)
+                })
+                .cloned())
+        }
+    }
+
+    #[derive(Default)]
+    struct EmptyCustomerProfileRepository;
+
+    #[async_trait]
+    impl CustomerProfileRepository for EmptyCustomerProfileRepository {
+        async fn save(&self, _profile: &CustomerProfile) -> Result<(), DomainError> {
+            Ok(())
+        }
+
+        async fn find_by_id(
+            &self,
+            _id: uuid::Uuid,
+        ) -> Result<Option<CustomerProfile>, DomainError> {
+            Ok(None)
+        }
+
+        async fn find_by_user_id(
+            &self,
+            _user_id: uuid::Uuid,
+        ) -> Result<Option<CustomerProfile>, DomainError> {
+            Ok(None)
+        }
+    }
+
+    struct ProfileSellerRepository {
+        profile: SellerProfile,
+    }
+
+    #[async_trait]
+    impl SellerProfileRepository for ProfileSellerRepository {
+        async fn save(&self, _profile: &SellerProfile) -> Result<(), DomainError> {
+            Ok(())
+        }
+
+        async fn find_by_id(&self, id: uuid::Uuid) -> Result<Option<SellerProfile>, DomainError> {
+            Ok((self.profile.id == id).then(|| self.profile.clone()))
+        }
+
+        async fn find_by_user_id(
+            &self,
+            user_id: uuid::Uuid,
+        ) -> Result<Option<SellerProfile>, DomainError> {
+            Ok((self.profile.user_id == user_id).then(|| self.profile.clone()))
+        }
+
+        async fn update_shop_name(
+            &self,
+            _user_id: uuid::Uuid,
+            _shop_name: String,
+        ) -> Result<(), DomainError> {
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingOtpProvider {
+        requested_identity: Mutex<Option<String>>,
+    }
+
+    #[async_trait]
+    impl PhoneOtpProvider for RecordingOtpProvider {
+        async fn request_otp(&self, identity: &str) -> Result<String, ApplicationError> {
+            *self.requested_identity.lock().expect("provider lock") = Some(identity.to_owned());
+            Ok("provider-secret-token".to_owned())
+        }
+
+        async fn verify_otp(
+            &self,
+            _identity: &str,
+            _otp: &str,
+            _provider_token: &str,
+        ) -> Result<bool, ApplicationError> {
+            Ok(true)
+        }
+    }
+
+    #[derive(Default)]
+    struct InMemoryChallengeStore {
+        challenge: Mutex<Option<PhoneOtpChallenge>>,
+    }
+
+    #[async_trait]
+    impl PhoneOtpChallengeStore for InMemoryChallengeStore {
+        async fn reserve_send(
+            &self,
+            _phone_number: &str,
+            _ttl_seconds: i64,
+        ) -> Result<bool, ApplicationError> {
+            Ok(true)
+        }
+
+        async fn release_send(&self, _phone_number: &str) -> Result<(), ApplicationError> {
+            Ok(())
+        }
+
+        async fn save(
+            &self,
+            challenge: &PhoneOtpChallenge,
+            _ttl_seconds: i64,
+        ) -> Result<(), ApplicationError> {
+            *self.challenge.lock().expect("challenge lock") = Some(challenge.clone());
+            Ok(())
+        }
+
+        async fn find(
+            &self,
+            _challenge_id: uuid::Uuid,
+        ) -> Result<Option<PhoneOtpChallenge>, ApplicationError> {
+            Ok(self.challenge.lock().expect("challenge lock").clone())
+        }
+
+        async fn record_failed_attempt(
+            &self,
+            _challenge_id: uuid::Uuid,
+            _ttl_seconds: i64,
+        ) -> Result<u32, ApplicationError> {
+            Ok(1)
+        }
+
+        async fn delete(&self, _challenge_id: uuid::Uuid) -> Result<(), ApplicationError> {
+            *self.challenge.lock().expect("challenge lock") = None;
+            Ok(())
+        }
+    }
 
     #[test]
     fn verification_token_exposes_selector_and_secret() {
@@ -1021,5 +2026,85 @@ mod tests {
     fn malformed_verification_token_is_rejected() {
         assert!(parse_verification_token("not-a-token").is_err());
         assert!(parse_verification_token("not-a-uuid.secret").is_err());
+    }
+
+    #[tokio::test]
+    async fn phone_registration_keeps_the_provider_token_server_side() {
+        let provider = Arc::new(RecordingOtpProvider::default());
+        let challenge_store = Arc::new(InMemoryChallengeStore::default());
+        let use_case = RequestPhoneOtpUseCase::new(
+            Arc::new(EmptyIdentityRepository),
+            provider.clone(),
+            challenge_store.clone(),
+            300,
+            60,
+        );
+
+        let response = use_case
+            .execute(RequestPhoneOtpRequest {
+                phone_number: "07 00 00 00 00".to_owned(),
+                purpose: PhoneOtpPurpose::Register,
+                full_name: None,
+                account_type: Some(AccountType::Seller),
+                shop_name: None,
+            })
+            .await
+            .expect("OTP request succeeds");
+
+        assert_eq!(response.expires_in_seconds, 300);
+        assert_eq!(
+            provider
+                .requested_identity
+                .lock()
+                .expect("provider lock")
+                .as_deref(),
+            Some("2250700000000")
+        );
+        let challenge = challenge_store
+            .challenge
+            .lock()
+            .expect("challenge lock")
+            .clone()
+            .expect("stored challenge");
+        assert_eq!(challenge.id, response.challenge_id);
+        assert_eq!(challenge.phone_number, "+2250700000000");
+        assert_eq!(challenge.provider_token, "provider-secret-token");
+    }
+
+    #[tokio::test]
+    async fn current_profile_exposes_human_facing_account_information() {
+        let user = User::new(
+            Some("Awa Kouamé".to_owned()),
+            Some("https://images.example/avatar.jpg".to_owned()),
+        );
+        let identity = UserAuthIdentity::google(
+            user.id,
+            "google-subject".to_owned(),
+            Some(EmailAddress::new("awa@example.com").expect("valid email")),
+        );
+        let seller = SellerProfile::start_trial(user.id, Some("Boutique Awa".to_owned()), None);
+        let session_id = uuid::Uuid::now_v7();
+        let use_case = GetCurrentUserProfileUseCase::new(
+            Arc::new(ProfileUserRepository { user: user.clone() }),
+            Arc::new(ProfileIdentityRepository {
+                identities: vec![identity],
+            }),
+            Arc::new(EmptyCustomerProfileRepository),
+            Arc::new(ProfileSellerRepository { profile: seller }),
+        );
+
+        let profile = use_case
+            .execute(user.id, session_id)
+            .await
+            .expect("profile is loaded");
+
+        assert_eq!(profile.session_id, session_id);
+        assert_eq!(profile.full_name.as_deref(), Some("Awa Kouamé"));
+        assert_eq!(profile.email.as_deref(), Some("awa@example.com"));
+        assert_eq!(profile.shop_name.as_deref(), Some("Boutique Awa"));
+        assert_eq!(profile.auth_methods, vec!["google"]);
+        assert!(profile.is_seller);
+        assert!(profile.account_verified);
+        assert!(!profile.can_change_password);
     }
 }

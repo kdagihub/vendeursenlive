@@ -14,7 +14,9 @@ pub struct AppConfig {
     pub security: SecurityConfig,
     pub migrations: MigrationConfig,
     pub tiktok: TikTokConfig,
+    pub google: GoogleConfig,
     pub email: EmailConfig,
+    pub ikoddi: IkoddiConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,6 +89,18 @@ pub struct TikTokConfig {
 }
 
 #[derive(Debug, Clone)]
+pub struct GoogleConfig {
+    pub client_id: Option<String>,
+    pub client_secret: Option<String>,
+    pub redirect_uri: Option<String>,
+    pub scopes: Vec<String>,
+    pub auth_url: String,
+    pub token_url: String,
+    pub user_info_url: String,
+    pub success_redirect_url: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct EmailConfig {
     pub delivery_enabled: bool,
     pub smtp_host: Option<String>,
@@ -99,6 +113,18 @@ pub struct EmailConfig {
     pub email_verification_url: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct IkoddiConfig {
+    pub enabled: bool,
+    pub base_url: String,
+    pub api_key: Option<String>,
+    pub organization_id: Option<String>,
+    pub otp_app_id: Option<String>,
+    pub challenge_ttl_seconds: i64,
+    pub resend_cooldown_seconds: i64,
+    pub max_attempts: u32,
+}
+
 #[derive(Debug, Error)]
 pub enum ConfigError {
     #[error("missing required environment variable {0}")]
@@ -108,11 +134,13 @@ pub enum ConfigError {
         name: &'static str,
         source: Box<dyn std::error::Error + Send + Sync>,
     },
+    #[error("invalid application configuration: {0}")]
+    InvalidConfiguration(&'static str),
 }
 
 impl AppConfig {
     pub fn from_env() -> Result<Self, ConfigError> {
-        Ok(Self {
+        let config = Self {
             app_env: parse_app_env(env_or_default("APP_ENV", "development")?),
             server: ServerConfig {
                 host: env_or_default("SERVER_HOST", "0.0.0.0")?,
@@ -179,7 +207,29 @@ impl AppConfig {
                 )?,
                 success_redirect_url: env_or_default(
                     "TIKTOK_SUCCESS_REDIRECT_URL",
-                    "http://localhost:5173/app",
+                    "http://localhost:5173/",
+                )?,
+            },
+            google: GoogleConfig {
+                client_id: optional_env("GOOGLE_CLIENT_ID"),
+                client_secret: optional_env("GOOGLE_CLIENT_SECRET"),
+                redirect_uri: optional_env("GOOGLE_REDIRECT_URI"),
+                scopes: parse_csv_env("GOOGLE_SCOPES", "openid,email,profile"),
+                auth_url: env_or_default(
+                    "GOOGLE_AUTH_URL",
+                    "https://accounts.google.com/o/oauth2/v2/auth",
+                )?,
+                token_url: env_or_default(
+                    "GOOGLE_TOKEN_URL",
+                    "https://oauth2.googleapis.com/token",
+                )?,
+                user_info_url: env_or_default(
+                    "GOOGLE_USER_INFO_URL",
+                    "https://openidconnect.googleapis.com/v1/userinfo",
+                )?,
+                success_redirect_url: env_or_default(
+                    "GOOGLE_SUCCESS_REDIRECT_URL",
+                    "http://localhost:5173/",
                 )?,
             },
             email: EmailConfig {
@@ -199,7 +249,72 @@ impl AppConfig {
                     "http://localhost:5173/verify-email",
                 )?,
             },
-        })
+            ikoddi: IkoddiConfig {
+                enabled: parse_env("IKODDI_ENABLED", "false")?,
+                base_url: env_or_default("IKODDI_BASE_URL", "https://api.staging.ikoddi.com")?,
+                api_key: optional_env("IKODDI_API_KEY"),
+                organization_id: optional_env("IKODDI_ORGANIZATION_ID"),
+                otp_app_id: optional_env("IKODDI_OTP_APP_ID"),
+                challenge_ttl_seconds: parse_env("OTP_CHALLENGE_TTL_SECONDS", "300")?,
+                resend_cooldown_seconds: parse_env("OTP_RESEND_COOLDOWN_SECONDS", "60")?,
+                max_attempts: parse_env("OTP_MAX_ATTEMPTS", "5")?,
+            },
+        };
+
+        config.ikoddi.validate()?;
+        config.google.validate()?;
+        Ok(config)
+    }
+}
+
+impl GoogleConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        let configured_values = [
+            self.client_id.is_some(),
+            self.client_secret.is_some(),
+            self.redirect_uri.is_some(),
+        ];
+
+        if configured_values.iter().any(|configured| *configured)
+            && !configured_values.iter().all(|configured| *configured)
+        {
+            return Err(ConfigError::InvalidConfiguration(
+                "GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI must be configured together",
+            ));
+        }
+
+        if self.scopes.iter().any(|scope| scope == "openid") {
+            Ok(())
+        } else {
+            Err(ConfigError::InvalidConfiguration(
+                "GOOGLE_SCOPES must include openid",
+            ))
+        }
+    }
+}
+
+impl IkoddiConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        if !self.enabled {
+            return Ok(());
+        }
+
+        if self.api_key.is_none() || self.organization_id.is_none() || self.otp_app_id.is_none() {
+            return Err(ConfigError::InvalidConfiguration(
+                "IKODDI_ENABLED requires IKODDI_API_KEY, IKODDI_ORGANIZATION_ID and IKODDI_OTP_APP_ID",
+            ));
+        }
+
+        if self.challenge_ttl_seconds <= 0
+            || self.resend_cooldown_seconds <= 0
+            || self.max_attempts == 0
+        {
+            return Err(ConfigError::InvalidConfiguration(
+                "IKODDI OTP limits must be greater than zero",
+            ));
+        }
+
+        Ok(())
     }
 }
 

@@ -94,6 +94,8 @@ fn requires_csrf(request: &ServiceRequest) -> bool {
         request.path(),
         "/auth/register"
             | "/auth/login"
+            | "/auth/phone/otp/request"
+            | "/auth/phone/otp/verify"
             | "/auth/password-reset/request"
             | "/auth/password-reset/confirm"
             | "/auth/email-verification/confirm"

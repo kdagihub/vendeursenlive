@@ -3,6 +3,8 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 
 import DesktopLayout from '@/layouts/DesktopLayout.vue'
 import MobileLayout from '@/layouts/MobileLayout.vue'
+import AuthDialog from '@/components/auth/AuthDialog.vue'
+import SellerLiveDialog from '@/components/SellerLiveDialog.vue'
 
 const mediaQuery = window.matchMedia('(min-width: 1024px)')
 const isDesktop = ref(mediaQuery.matches)
@@ -21,4 +23,6 @@ onBeforeUnmount(() => mediaQuery.removeEventListener('change', syncLayout))
 <template>
   <DesktopLayout v-if="isDesktop"><slot /></DesktopLayout>
   <MobileLayout v-else><slot /></MobileLayout>
+  <AuthDialog />
+  <SellerLiveDialog />
 </template>

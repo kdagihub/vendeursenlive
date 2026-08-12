@@ -22,6 +22,25 @@ pub struct AuthenticatedUser {
 #[derive(Debug, Clone)]
 pub struct VerifiedUser(pub AuthenticatedUser);
 
+#[derive(Debug, Clone)]
+pub struct VerifiedSeller(pub AuthenticatedUser);
+
+impl FromRequest for VerifiedSeller {
+    type Error = Error;
+    type Future = Ready<Result<Self, Self::Error>>;
+
+    fn from_request(request: &HttpRequest, _: &mut Payload) -> Self::Future {
+        ready(match authenticated_user_from_request(request) {
+            Ok(user) if !user.account_verified => {
+                Err(ErrorForbidden("account verification required"))
+            }
+            Ok(user) if !user.is_seller => Err(ErrorForbidden("seller account required")),
+            Ok(user) => Ok(Self(user)),
+            Err(error) => Err(error),
+        })
+    }
+}
+
 impl FromRequest for VerifiedUser {
     type Error = Error;
     type Future = Ready<Result<Self, Self::Error>>;

@@ -5,7 +5,7 @@ use uuid::Uuid;
 pub struct SellerProfile {
     pub id: Uuid,
     pub user_id: Uuid,
-    pub shop_name: String,
+    pub shop_name: Option<String>,
     pub payment_link: Option<String>,
     pub trial_ends_at: DateTime<Utc>,
     pub is_active: bool,
@@ -13,7 +13,11 @@ pub struct SellerProfile {
 }
 
 impl SellerProfile {
-    pub fn start_trial(user_id: Uuid, shop_name: String, payment_link: Option<String>) -> Self {
+    pub fn start_trial(
+        user_id: Uuid,
+        shop_name: Option<String>,
+        payment_link: Option<String>,
+    ) -> Self {
         let now = Utc::now();
 
         Self {
@@ -25,5 +29,18 @@ impl SellerProfile {
             is_active: true,
             created_at: now,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn seller_can_complete_the_shop_after_registration() {
+        let profile = SellerProfile::start_trial(Uuid::now_v7(), None, None);
+
+        assert!(profile.shop_name.is_none());
+        assert!(profile.is_active);
     }
 }

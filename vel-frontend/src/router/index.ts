@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import AppHomeView from '@/views/AppHomeView.vue'
-import AuthView from '@/views/AuthView.vue'
+import ExploreView from '@/views/ExploreView.vue'
 import HomeView from '@/views/HomeView.vue'
 import LiveRoomView from '@/views/LiveRoomView.vue'
 import PrivacyView from '@/views/PrivacyView.vue'
@@ -25,6 +25,17 @@ const router = createRouter({
       },
     },
     {
+      path: '/explore',
+      name: 'explore',
+      component: ExploreView,
+      meta: {
+        marketplace: true,
+        title: 'Explorer les lives',
+        description:
+          'Recherche des lives, produits et vendeurs par catégorie ou commune sur VendeursEnLive.',
+      },
+    },
+    {
       path: '/live/:id',
       name: 'live-room',
       component: LiveRoomView,
@@ -36,7 +47,13 @@ const router = createRouter({
     {
       path: '/login',
       name: 'login',
-      component: AuthView,
+      redirect: (to) => {
+        const { mode, ...query } = to.query
+        return {
+          name: 'home',
+          query: { ...query, auth: mode === 'register' ? 'register' : 'login' },
+        }
+      },
     },
     {
       path: '/reset-password',
@@ -49,12 +66,18 @@ const router = createRouter({
       component: VerifyEmailView,
     },
     {
-      path: '/app',
-      name: 'app-home',
+      path: '/profile',
+      name: 'profile',
       component: AppHomeView,
       meta: {
+        marketplace: true,
         requiresAuth: true,
+        title: 'Mon profil',
       },
+    },
+    {
+      path: '/app',
+      redirect: (to) => ({ path: '/', query: to.query }),
     },
     {
       path: '/terms',
@@ -75,7 +98,7 @@ const router = createRouter({
         marketplace: true,
         title: 'Politique de confidentialité',
         description:
-          'Données collectées par VendeursEnLive, connexion TikTok, cookies et droits des utilisateurs.',
+          'Données collectées par VendeursEnLive, authentification par téléphone, cookies et droits des utilisateurs.',
       },
     },
     {
@@ -102,7 +125,7 @@ router.beforeEach(async (to) => {
 
   const auth = useAuthStore()
 
-  if (auth.isAuthenticated) {
+  if (auth.isAuthenticated && auth.user?.member_since) {
     return true
   }
 
@@ -110,8 +133,9 @@ router.beforeEach(async (to) => {
 
   if (!hasSession) {
     return {
-      name: 'login',
+      name: 'home',
       query: {
+        auth: 'login',
         redirect: to.fullPath,
       },
     }

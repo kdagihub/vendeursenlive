@@ -22,31 +22,48 @@ const sections = [
     <div class="mx-auto w-full max-w-[1180px] px-4 py-8 sm:px-6 sm:py-12 lg:px-8 lg:py-16">
       <header class="max-w-4xl">
         <p class="text-xs font-black text-[#d92035] uppercase">Informations légales</p>
-        <h1 class="mt-3 text-3xl leading-tight font-black text-[#211536] sm:text-4xl lg:text-5xl">
+        <h1
+          class="mt-3 text-3xl leading-tight font-black text-[#211536] sm:text-4xl lg:text-5xl dark:text-white"
+        >
           Conditions générales d’utilisation
         </h1>
-        <p class="mt-5 max-w-3xl text-base leading-7 text-slate-600 sm:text-lg">
+        <p class="mt-5 max-w-3xl text-base leading-7 text-slate-600 sm:text-lg dark:text-slate-300">
           Ces conditions encadrent l’accès à VendeursEnLive et l’utilisation de ses outils de
           découverte, de live commerce et de prise de commandes.
         </p>
-        <div class="mt-5 flex flex-wrap gap-x-6 gap-y-2 text-sm text-slate-500">
-          <span><strong class="text-slate-800">Version :</strong> 24 juillet 2026</span>
-          <span><strong class="text-slate-800">Territoire :</strong> Côte d’Ivoire</span>
-          <span><strong class="text-slate-800">Service :</strong> vendeursenlive.shop</span>
+        <div class="mt-5 flex flex-wrap gap-x-6 gap-y-2 text-sm text-slate-500 dark:text-slate-400">
+          <span>
+            <strong class="text-slate-800 dark:text-slate-200">Version :</strong> 24 juillet 2026
+          </span>
+          <span>
+            <strong class="text-slate-800 dark:text-slate-200">Territoire :</strong> Côte d’Ivoire
+          </span>
+          <span>
+            <strong class="text-slate-800 dark:text-slate-200">Service :</strong>
+            vendeursenlive.shop
+          </span>
         </div>
       </header>
 
       <div class="mt-10 grid items-start gap-10 lg:grid-cols-[230px_minmax(0,1fr)] lg:gap-16">
         <aside class="lg:sticky lg:top-24">
-          <details class="group border-y border-slate-200 py-3 lg:border-0 lg:py-0" open>
-            <summary class="cursor-pointer text-sm font-black text-[#211536] lg:cursor-default">
+          <details
+            class="group border-y border-slate-200 py-3 lg:border-0 lg:py-0 dark:border-white/12"
+            open
+          >
+            <summary
+              class="cursor-pointer text-sm font-black text-[#211536] lg:cursor-default dark:text-white"
+            >
               Sur cette page
             </summary>
-            <nav class="mt-3 grid gap-2 border-l border-slate-300 pl-4 text-sm" aria-label="Sommaire des conditions">
+            <nav
+              class="mt-3 grid gap-2 border-l border-slate-300 pl-4 text-sm dark:border-white/20"
+              aria-label="Sommaire des conditions"
+            >
               <a
                 v-for="section in sections"
                 :key="section.id"
-                class="text-slate-600 hover:text-[#d92035]"
+                class="text-slate-600 hover:text-[#d92035] dark:text-slate-300 dark:hover:text-[#ff7381]"
                 :href="`#${section.id}`"
               >
                 {{ section.label }}
@@ -63,44 +80,62 @@ const sections = [
               et exploitée par le
               <strong>
                 Cabinet d’Ingénierie Avancée et de Conception d’Environnements Multiservices
-                Sécurisés (CIACEMS)
-              </strong>.
+                Sécurisés (CIACEMS) </strong
+              >.
             </p>
             <dl class="mt-5 grid gap-x-8 gap-y-4 sm:grid-cols-2">
               <div>
-                <dt class="text-xs font-black text-slate-500 uppercase">Forme juridique</dt>
-                <dd class="mt-1 font-semibold text-slate-800">SARL pluripersonnelle</dd>
-              </div>
-              <div>
-                <dt class="text-xs font-black text-slate-500 uppercase">Capital social</dt>
-                <dd class="mt-1 font-semibold text-slate-800">1 000 000 FCFA</dd>
-              </div>
-              <div>
-                <dt class="text-xs font-black text-slate-500 uppercase">RCCM</dt>
-                <dd class="mt-1 font-semibold text-slate-800">CI-ABJ-03-2024-M-44362</dd>
-              </div>
-              <div>
-                <dt class="text-xs font-black text-slate-500 uppercase">
-                  Numéro de compte contribuable
+                <dt class="text-xs font-black text-slate-500 uppercase dark:text-slate-400">
+                  Forme juridique
                 </dt>
-                <dd class="mt-1 font-semibold text-slate-800">2304005 U</dd>
-              </div>
-              <div class="sm:col-span-2">
-                <dt class="text-xs font-black text-slate-500 uppercase">Siège social</dt>
-                <dd class="mt-1 font-semibold text-slate-800">
-                  Abidjan, Cocody, Angré 8e Tranche, Cité EVE, lot 664, îlot 43 — 09 BP 3815
-                  Abidjan 09, Côte d’Ivoire
+                <dd class="mt-1 font-semibold text-slate-800 dark:text-slate-200">
+                  SARL pluripersonnelle
                 </dd>
               </div>
               <div>
-                <dt class="text-xs font-black text-slate-500 uppercase">
-                  Direction technique de VendeursEnLive
+                <dt class="text-xs font-black text-slate-500 uppercase dark:text-slate-400">
+                  Capital social
                 </dt>
-                <dd class="mt-1 font-semibold text-slate-800">M. KOFFI DJÈCLAY Alexandre</dd>
+                <dd class="mt-1 font-semibold text-slate-800 dark:text-slate-200">
+                  1 000 000 FCFA
+                </dd>
               </div>
               <div>
-                <dt class="text-xs font-black text-slate-500 uppercase">Contact VendeursEnLive</dt>
-                <dd class="mt-1 font-semibold text-slate-800">
+                <dt class="text-xs font-black text-slate-500 uppercase dark:text-slate-400">
+                  RCCM
+                </dt>
+                <dd class="mt-1 font-semibold text-slate-800 dark:text-slate-200">
+                  CI-ABJ-03-2024-M-44362
+                </dd>
+              </div>
+              <div>
+                <dt class="text-xs font-black text-slate-500 uppercase dark:text-slate-400">
+                  Numéro de compte contribuable
+                </dt>
+                <dd class="mt-1 font-semibold text-slate-800 dark:text-slate-200">2304005 U</dd>
+              </div>
+              <div class="sm:col-span-2">
+                <dt class="text-xs font-black text-slate-500 uppercase dark:text-slate-400">
+                  Siège social
+                </dt>
+                <dd class="mt-1 font-semibold text-slate-800 dark:text-slate-200">
+                  Abidjan, Cocody, Angré 8e Tranche, Cité EVE, lot 664, îlot 43 — 09 BP 3815 Abidjan
+                  09, Côte d’Ivoire
+                </dd>
+              </div>
+              <div>
+                <dt class="text-xs font-black text-slate-500 uppercase dark:text-slate-400">
+                  Direction technique de VendeursEnLive
+                </dt>
+                <dd class="mt-1 font-semibold text-slate-800 dark:text-slate-200">
+                  M. KOFFI DJÈCLAY Alexandre
+                </dd>
+              </div>
+              <div>
+                <dt class="text-xs font-black text-slate-500 uppercase dark:text-slate-400">
+                  Contact VendeursEnLive
+                </dt>
+                <dd class="mt-1 font-semibold text-slate-800 dark:text-slate-200">
                   <a href="mailto:contact@vendeursenlive.shop">contact@vendeursenlive.shop</a><br />
                   <a href="tel:+2250797969394">+225 07 97 96 93 94</a>
                 </dd>
@@ -130,7 +165,7 @@ const sections = [
             <ul>
               <li>
                 L’inscription peut être réalisée par téléphone, email ou par un fournisseur de
-                connexion proposé, notamment TikTok.
+                connexion proposé par la plateforme.
               </li>
               <li>
                 Les informations communiquées doivent être exactes, actuelles et appartenir à
@@ -164,8 +199,12 @@ const sections = [
             </p>
             <ul>
               <li>décrire honnêtement les produits, leur état et leurs conditions de vente ;</li>
-              <li>respecter les règles fiscales, commerciales et de protection du consommateur ;</li>
-              <li>disposer des droits nécessaires sur les images, marques et contenus diffusés ;</li>
+              <li>
+                respecter les règles fiscales, commerciales et de protection du consommateur ;
+              </li>
+              <li>
+                disposer des droits nécessaires sur les images, marques et contenus diffusés ;
+              </li>
               <li>
                 traiter les coordonnées des clients uniquement pour exécuter la commande concernée ;
               </li>
@@ -226,9 +265,9 @@ const sections = [
           <section id="contenus">
             <h2>7. Contenus et propriété intellectuelle</h2>
             <p>
-              La marque, l’interface, le code et les éléments propres à VendeursEnLive sont protégés.
-              Aucun droit de reproduction ou d’exploitation n’est accordé en dehors de l’usage
-              normal du service.
+              La marque, l’interface, le code et les éléments propres à VendeursEnLive sont
+              protégés. Aucun droit de reproduction ou d’exploitation n’est accordé en dehors de
+              l’usage normal du service.
             </p>
             <p>
               L’utilisateur conserve ses droits sur les contenus qu’il publie. Il accorde à
@@ -243,9 +282,13 @@ const sections = [
             <p>Il est notamment interdit de :</p>
             <ul>
               <li>frauder, usurper une identité ou manipuler une preuve de paiement ;</li>
-              <li>publier un contenu illicite, haineux, trompeur ou portant atteinte à un tiers ;</li>
+              <li>
+                publier un contenu illicite, haineux, trompeur ou portant atteinte à un tiers ;
+              </li>
               <li>collecter ou détourner les données d’autres utilisateurs ;</li>
-              <li>contourner la sécurité, perturber le service ou automatiser des accès abusifs ;</li>
+              <li>
+                contourner la sécurité, perturber le service ou automatiser des accès abusifs ;
+              </li>
               <li>utiliser la plateforme à des fins de blanchiment ou de financement illicite.</li>
             </ul>
           </section>
@@ -254,8 +297,8 @@ const sections = [
             <h2>9. Disponibilité et responsabilité</h2>
             <p>
               CIACEMS met en œuvre des moyens raisonnables pour assurer la sécurité et la continuité
-              du service. Une disponibilité permanente ne peut toutefois être garantie, notamment
-              en cas de maintenance, panne, incident réseau ou défaillance d’un fournisseur tiers.
+              du service. Une disponibilité permanente ne peut toutefois être garantie, notamment en
+              cas de maintenance, panne, incident réseau ou défaillance d’un fournisseur tiers.
             </p>
             <p>
               Dans les limites autorisées par la loi, VendeursEnLive ne répond pas des déclarations
@@ -270,8 +313,8 @@ const sections = [
             <h2>10. Suspension, suppression et résiliation</h2>
             <p>
               Un compte ou un contenu peut être limité, suspendu ou supprimé en cas de fraude, de
-              risque pour la sécurité, de violation des présentes conditions, d’obligation légale
-              ou de demande d’une autorité compétente.
+              risque pour la sécurité, de violation des présentes conditions, d’obligation légale ou
+              de demande d’une autorité compétente.
             </p>
             <p>
               L’utilisateur peut demander la fermeture de son compte. Certaines données liées aux
@@ -300,8 +343,8 @@ const sections = [
             <h2>12. Contact et signalement</h2>
             <p>
               Pour une question, une réclamation ou le signalement d’un contenu ou vendeur :
-              <a href="mailto:contact@vendeursenlive.shop">contact@vendeursenlive.shop</a>.
-              Indiquez les informations permettant d’identifier la session, la commande ou le compte
+              <a href="mailto:contact@vendeursenlive.shop">contact@vendeursenlive.shop</a>. Indiquez
+              les informations permettant d’identifier la session, la commande ou le compte
               concerné, sans transmettre de mot de passe.
             </p>
           </section>

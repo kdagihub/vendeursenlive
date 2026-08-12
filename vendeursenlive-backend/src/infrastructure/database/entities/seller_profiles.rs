@@ -8,7 +8,7 @@ pub struct Model {
     pub id: Uuid,
     #[sea_orm(unique)]
     pub user_id: Uuid,
-    pub shop_name: String,
+    pub shop_name: Option<String>,
     pub payment_link: Option<String>,
     pub trial_ends_at: DateTimeWithTimeZone,
     pub is_active: bool,

@@ -1,9 +1,18 @@
 <script setup lang="ts">
 import { CarFront, Compass, House, LayoutGrid, Shirt, ShoppingBasket, Sparkles } from '@lucide/vue'
+import { useRoute, useRouter } from 'vue-router'
 
+import { useAuthDialog } from '@/composables/useAuthDialog'
+import { useSellerLiveDialog } from '@/composables/useSellerLiveDialog'
+import { useAuthStore } from '@/stores/auth'
 import { useLiveDiscoveryStore } from '@/stores/liveDiscovery'
 
+const auth = useAuthStore()
 const discovery = useLiveDiscoveryStore()
+const route = useRoute()
+const router = useRouter()
+const { openAuthDialog } = useAuthDialog()
+const { openLiveDialog } = useSellerLiveDialog()
 
 const categoryIcons = {
   mode: Shirt,
@@ -11,6 +20,16 @@ const categoryIcons = {
   food: ShoppingBasket,
   vehicles: CarFront,
   home: House,
+}
+
+function connectLive() {
+  if (auth.isAuthenticated) return openLiveDialog()
+  return openAuthDialog('register', '/?live=connect')
+}
+
+async function explore(category?: string) {
+  if (category) discovery.activeCategory = category
+  await router.push('/explore')
 }
 </script>
 
@@ -20,19 +39,30 @@ const categoryIcons = {
   >
     <nav class="space-y-1" aria-label="Navigation découverte">
       <RouterLink
-        class="flex h-11 items-center gap-3 px-3 font-bold text-[#d92035] no-underline"
+        class="flex h-11 items-center gap-3 rounded-md px-3 font-bold no-underline"
+        :class="
+          route.path === '/'
+            ? 'text-[#d92035]'
+            : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/8'
+        "
         to="/"
       >
         <House :size="20" />
         Accueil
       </RouterLink>
-      <a
-        class="flex h-11 items-center gap-3 rounded-md px-3 font-semibold text-slate-700 no-underline hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/8"
-        href="#lives"
+      <button
+        class="flex h-11 w-full items-center gap-3 rounded-md px-3 font-semibold no-underline"
+        :class="
+          route.path === '/explore'
+            ? 'text-[#d92035]'
+            : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/8'
+        "
+        type="button"
+        @click="explore()"
       >
         <Compass :size="20" />
         Explorer
-      </a>
+      </button>
     </nav>
 
     <div class="mt-7">
@@ -46,7 +76,7 @@ const categoryIcons = {
               : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/8'
           "
           type="button"
-          @click="discovery.activeCategory = 'all'"
+          @click="explore('all')"
         >
           <LayoutGrid :size="18" />
           Toutes
@@ -61,7 +91,7 @@ const categoryIcons = {
               : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/8'
           "
           type="button"
-          @click="discovery.activeCategory = category.id"
+          @click="explore(category.id)"
         >
           <component :is="categoryIcons[category.id]" :size="18" />
           {{ category.label }}
@@ -70,16 +100,19 @@ const categoryIcons = {
     </div>
 
     <div class="mt-auto px-3 pt-5">
-      <p class="text-sm font-black text-slate-950 dark:text-white">Tu vends déjà en live ?</p>
+      <p class="text-sm font-black text-slate-950 dark:text-white">
+        Tu vends déjà en live sur TikTok ?
+      </p>
       <p class="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
         Centralise tes commandes et garde le contrôle de tes ventes.
       </p>
-      <RouterLink
+      <button
         class="mt-3 inline-flex h-10 w-full items-center justify-center rounded-md bg-[#ff3447] text-sm font-bold text-white no-underline hover:bg-[#d92035]"
-        to="/login?mode=register"
+        type="button"
+        @click="connectLive"
       >
-        Devenir vendeur
-      </RouterLink>
+        Connecter mon LIVE
+      </button>
       <nav class="mt-4 flex flex-wrap gap-x-3 gap-y-1 text-[11px]" aria-label="Liens légaux">
         <RouterLink class="text-slate-500 hover:text-[#d92035]" to="/terms">CGU</RouterLink>
         <RouterLink class="text-slate-500 hover:text-[#d92035]" to="/privacy">

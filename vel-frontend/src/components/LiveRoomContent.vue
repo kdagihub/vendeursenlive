@@ -27,7 +27,11 @@ const formattedPrice = computed(
 
 async function startOrder() {
   if (!auth.isAuthenticated) {
-    await router.push({ name: 'login', query: { redirect: `/live/${props.live.id}` } })
+    await router.push({
+      name: 'live-room',
+      params: { id: props.live.id },
+      query: { auth: 'login', redirect: `/live/${props.live.id}` },
+    })
     return
   }
 

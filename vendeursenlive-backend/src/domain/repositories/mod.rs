@@ -13,6 +13,7 @@ use crate::domain::{
 pub trait UserRepository: Send + Sync {
     async fn save(&self, user: &User) -> Result<(), DomainError>;
     async fn find_by_id(&self, id: Uuid) -> Result<Option<User>, DomainError>;
+    async fn update_full_name(&self, id: Uuid, full_name: String) -> Result<(), DomainError>;
 }
 
 #[async_trait]
@@ -25,6 +26,7 @@ pub trait UserAuthIdentityRepository: Send + Sync {
         password_hash: String,
     ) -> Result<(), DomainError>;
     async fn mark_email_verified(&self, identity_id: Uuid) -> Result<(), DomainError>;
+    async fn mark_phone_verified(&self, identity_id: Uuid) -> Result<(), DomainError>;
     async fn find_local_by_user_id(
         &self,
         user_id: Uuid,
@@ -91,11 +93,13 @@ pub trait SellerProfileRepository: Send + Sync {
     async fn save(&self, seller_profile: &SellerProfile) -> Result<(), DomainError>;
     async fn find_by_id(&self, id: Uuid) -> Result<Option<SellerProfile>, DomainError>;
     async fn find_by_user_id(&self, user_id: Uuid) -> Result<Option<SellerProfile>, DomainError>;
+    async fn update_shop_name(&self, user_id: Uuid, shop_name: String) -> Result<(), DomainError>;
 }
 
 #[async_trait]
 pub trait LiveSessionRepository: Send + Sync {
     async fn save(&self, live_session: &LiveSession) -> Result<(), DomainError>;
+    async fn update(&self, live_session: &LiveSession) -> Result<(), DomainError>;
     async fn find_by_id(&self, id: Uuid) -> Result<Option<LiveSession>, DomainError>;
     async fn find_ongoing_by_seller(
         &self,

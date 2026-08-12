@@ -5,7 +5,8 @@ const sections = [
   { id: 'responsable', label: 'Responsable du traitement' },
   { id: 'donnees', label: 'Données collectées' },
   { id: 'finalites', label: 'Finalités' },
-  { id: 'tiktok', label: 'Connexion TikTok' },
+  { id: 'auth-phone', label: 'Authentification téléphone' },
+  { id: 'auth-google', label: 'Connexion Google' },
   { id: 'cookies', label: 'Cookies et sécurité' },
   { id: 'destinataires', label: 'Destinataires' },
   { id: 'transferts', label: 'Transferts internationaux' },
@@ -22,33 +23,49 @@ const sections = [
     <div class="mx-auto w-full max-w-[1180px] px-4 py-8 sm:px-6 sm:py-12 lg:px-8 lg:py-16">
       <header class="max-w-4xl">
         <p class="text-xs font-black text-[#d92035] uppercase">Protection des données</p>
-        <h1 class="mt-3 text-3xl leading-tight font-black text-[#211536] sm:text-4xl lg:text-5xl">
+        <h1
+          class="mt-3 text-3xl leading-tight font-black text-[#211536] sm:text-4xl lg:text-5xl dark:text-white"
+        >
           Politique de confidentialité
         </h1>
-        <p class="mt-5 max-w-3xl text-base leading-7 text-slate-600 sm:text-lg">
+        <p class="mt-5 max-w-3xl text-base leading-7 text-slate-600 sm:text-lg dark:text-slate-300">
           Cette politique explique quelles données VendeursEnLive utilise, pourquoi elles sont
           nécessaires et comment exercer les droits reconnus par la législation ivoirienne.
         </p>
-        <div class="mt-5 flex flex-wrap gap-x-6 gap-y-2 text-sm text-slate-500">
-          <span><strong class="text-slate-800">Version :</strong> 24 juillet 2026</span>
+        <div class="mt-5 flex flex-wrap gap-x-6 gap-y-2 text-sm text-slate-500 dark:text-slate-400">
           <span>
-            <strong class="text-slate-800">Référence :</strong> loi ivoirienne n° 2013-450
+            <strong class="text-slate-800 dark:text-slate-200">Version :</strong> 24 juillet 2026
           </span>
-          <span><strong class="text-slate-800">Contact :</strong> contact@vendeursenlive.shop</span>
+          <span>
+            <strong class="text-slate-800 dark:text-slate-200">Référence :</strong> loi ivoirienne
+            n° 2013-450
+          </span>
+          <span>
+            <strong class="text-slate-800 dark:text-slate-200">Contact :</strong>
+            contact@vendeursenlive.shop
+          </span>
         </div>
       </header>
 
       <div class="mt-10 grid items-start gap-10 lg:grid-cols-[230px_minmax(0,1fr)] lg:gap-16">
         <aside class="lg:sticky lg:top-24">
-          <details class="group border-y border-slate-200 py-3 lg:border-0 lg:py-0" open>
-            <summary class="cursor-pointer text-sm font-black text-[#211536] lg:cursor-default">
+          <details
+            class="group border-y border-slate-200 py-3 lg:border-0 lg:py-0 dark:border-white/12"
+            open
+          >
+            <summary
+              class="cursor-pointer text-sm font-black text-[#211536] lg:cursor-default dark:text-white"
+            >
               Sur cette page
             </summary>
-            <nav class="mt-3 grid gap-2 border-l border-slate-300 pl-4 text-sm" aria-label="Sommaire de la politique">
+            <nav
+              class="mt-3 grid gap-2 border-l border-slate-300 pl-4 text-sm dark:border-white/20"
+              aria-label="Sommaire de la politique"
+            >
               <a
                 v-for="section in sections"
                 :key="section.id"
-                class="text-slate-600 hover:text-[#d92035]"
+                class="text-slate-600 hover:text-[#d92035] dark:text-slate-300 dark:hover:text-[#ff7381]"
                 :href="`#${section.id}`"
               >
                 {{ section.label }}
@@ -64,38 +81,47 @@ const sections = [
               Le
               <strong>
                 Cabinet d’Ingénierie Avancée et de Conception d’Environnements Multiservices
-                Sécurisés (CIACEMS)
-              </strong>,
-              SARL pluripersonnelle au capital de 1 000 000 FCFA, détermine les finalités et les
+                Sécurisés (CIACEMS) </strong
+              >, SARL pluripersonnelle au capital de 1 000 000 FCFA, détermine les finalités et les
               moyens des traitements décrits dans cette politique.
             </p>
             <dl class="mt-5 grid gap-x-8 gap-y-4 sm:grid-cols-2">
               <div>
-                <dt class="text-xs font-black text-slate-500 uppercase">RCCM</dt>
-                <dd class="mt-1 font-semibold text-slate-800">CI-ABJ-03-2024-M-44362</dd>
-              </div>
-              <div>
-                <dt class="text-xs font-black text-slate-500 uppercase">
-                  Numéro de compte contribuable
+                <dt class="text-xs font-black text-slate-500 uppercase dark:text-slate-400">
+                  RCCM
                 </dt>
-                <dd class="mt-1 font-semibold text-slate-800">2304005 U</dd>
-              </div>
-              <div class="sm:col-span-2">
-                <dt class="text-xs font-black text-slate-500 uppercase">Siège social</dt>
-                <dd class="mt-1 font-semibold text-slate-800">
-                  Abidjan, Cocody, Angré 8e Tranche, Cité EVE, lot 664, îlot 43 — 09 BP 3815
-                  Abidjan 09, Côte d’Ivoire
+                <dd class="mt-1 font-semibold text-slate-800 dark:text-slate-200">
+                  CI-ABJ-03-2024-M-44362
                 </dd>
               </div>
               <div>
-                <dt class="text-xs font-black text-slate-500 uppercase">
-                  Direction technique de VendeursEnLive
+                <dt class="text-xs font-black text-slate-500 uppercase dark:text-slate-400">
+                  Numéro de compte contribuable
                 </dt>
-                <dd class="mt-1 font-semibold text-slate-800">M. KOFFI DJÈCLAY Alexandre</dd>
+                <dd class="mt-1 font-semibold text-slate-800 dark:text-slate-200">2304005 U</dd>
+              </div>
+              <div class="sm:col-span-2">
+                <dt class="text-xs font-black text-slate-500 uppercase dark:text-slate-400">
+                  Siège social
+                </dt>
+                <dd class="mt-1 font-semibold text-slate-800 dark:text-slate-200">
+                  Abidjan, Cocody, Angré 8e Tranche, Cité EVE, lot 664, îlot 43 — 09 BP 3815 Abidjan
+                  09, Côte d’Ivoire
+                </dd>
               </div>
               <div>
-                <dt class="text-xs font-black text-slate-500 uppercase">Contact</dt>
-                <dd class="mt-1 font-semibold text-slate-800">
+                <dt class="text-xs font-black text-slate-500 uppercase dark:text-slate-400">
+                  Direction technique de VendeursEnLive
+                </dt>
+                <dd class="mt-1 font-semibold text-slate-800 dark:text-slate-200">
+                  M. KOFFI DJÈCLAY Alexandre
+                </dd>
+              </div>
+              <div>
+                <dt class="text-xs font-black text-slate-500 uppercase dark:text-slate-400">
+                  Contact
+                </dt>
+                <dd class="mt-1 font-semibold text-slate-800 dark:text-slate-200">
                   <a href="mailto:contact@vendeursenlive.shop">contact@vendeursenlive.shop</a><br />
                   <a href="tel:+2250797969394">+225 07 97 96 93 94</a>
                 </dd>
@@ -116,18 +142,26 @@ const sections = [
             <h3>Compte et identité</h3>
             <ul>
               <li>nom complet, email ou numéro de téléphone ;</li>
-              <li>identifiant interne, statut du compte et rôle client, vendeur ou administrateur ;</li>
+              <li>
+                identifiant interne, statut du compte et rôle client, vendeur ou administrateur ;
+              </li>
               <li>
                 mot de passe conservé uniquement sous forme de condensat cryptographique
                 irréversible ;
               </li>
               <li>état de vérification de l’email ou du téléphone.</li>
             </ul>
+            <p>
+              Lors d’une connexion Google, le service reçoit l’identifiant stable du compte Google,
+              son email vérifié et, lorsque disponibles, le nom d’affichage et l’avatar.
+            </p>
 
             <h3>Profil et activité commerciale</h3>
             <ul>
               <li>nom de boutique, lien de paiement et préférences du vendeur ;</li>
-              <li>localisation ou moyen de paiement préféré du client, lorsqu’ils sont renseignés ;</li>
+              <li>
+                localisation ou moyen de paiement préféré du client, lorsqu’ils sont renseignés ;
+              </li>
               <li>URL du live, images, descriptions et prix des produits présentés ;</li>
               <li>
                 nom, téléphone, lieu de livraison, statut de commande et éventuelle preuve de
@@ -139,7 +173,10 @@ const sections = [
             <ul>
               <li>adresse IP, type de navigateur ou appareil et horodatages de connexion ;</li>
               <li>identifiants de session, traces de sécurité et statut de révocation ;</li>
-              <li>jetons temporaires de vérification d’email ou de réinitialisation du mot de passe.</li>
+              <li>
+                jetons temporaires de vérification d’email, de réinitialisation du mot de passe ou
+                de challenge OTP.
+              </li>
             </ul>
           </section>
 
@@ -163,7 +200,7 @@ const sections = [
                     <td>Exécution du service et des mesures précontractuelles</td>
                   </tr>
                   <tr>
-                    <td>Vérifier l’email et permettre la récupération du compte</td>
+                    <td>Vérifier l’email ou le téléphone et permettre la récupération du compte</td>
                     <td>Sécurité du compte et demande de l’utilisateur</td>
                   </tr>
                   <tr>
@@ -184,37 +221,53 @@ const sections = [
             </p>
           </section>
 
-          <section id="tiktok">
-            <h2>4. Données utilisées avec TikTok Login Kit</h2>
+          <section id="auth-phone">
+            <h2>4. Authentification par téléphone et code OTP</h2>
             <p>
-              Lorsque l’utilisateur choisit « Continuer avec TikTok », il est redirigé vers TikTok
-              afin de s’authentifier et d’autoriser l’accès demandé. VendeursEnLive utilise
-              uniquement la portée <code>user.info.basic</code>.
+              Lorsque l’utilisateur choisit « Continuer avec le téléphone », VendeursEnLive transmet
+              son numéro au prestataire de messagerie IKODDI afin d’envoyer et de vérifier un code à
+              usage unique par SMS.
             </p>
-            <p>Après autorisation, VendeursEnLive reçoit et utilise :</p>
             <ul>
-              <li>l’<strong>open_id</strong>, identifiant TikTok propre à l’application ;</li>
-              <li>le <strong>nom d’affichage</strong> ;</li>
-              <li>l’<strong>URL de l’avatar</strong>, lorsqu’elle est disponible.</li>
+              <li>le numéro normalisé au format international ;</li>
+              <li>un jeton technique de vérification fourni par IKODDI ;</li>
+              <li>le résultat de la vérification du code saisi.</li>
             </ul>
             <p>
-              Ces données servent exclusivement à créer ou retrouver le compte VendeursEnLive et à
-              afficher son profil. Le jeton d’accès TikTok est utilisé de manière transitoire pour
-              récupérer ces informations et n’est pas conservé dans la base de données de
-              VendeursEnLive après la connexion.
+              Le jeton technique reste côté serveur dans Redis, n’est jamais communiqué au
+              navigateur et expire normalement après cinq minutes. Le challenge est également
+              supprimé après une vérification réussie ou un nombre maximal de tentatives invalides.
             </p>
             <p>
-              Révoquer VendeursEnLive depuis les paramètres TikTok empêche les futurs accès, mais ne
-              supprime pas automatiquement le compte VendeursEnLive déjà créé. Sa suppression peut
-              être demandée à
-              <a href="mailto:contact@vendeursenlive.shop">contact@vendeursenlive.shop</a>.
-              L’utilisation de TikTok reste également soumise à la politique de confidentialité de
-              TikTok.
+              Le numéro vérifié sert à créer ou retrouver le compte VendeursEnLive. Il peut aussi
+              être utilisé pour les notifications strictement nécessaires au service, dans le
+              respect des choix de l’utilisateur et des règles applicables.
+            </p>
+          </section>
+
+          <section id="auth-google">
+            <h2>5. Connexion avec Google</h2>
+            <p>
+              Lorsque l’utilisateur choisit « Continuer avec Google », il est redirigé vers Google
+              pour s’authentifier et autoriser l’accès aux seules informations de profil de base.
+              VendeursEnLive demande les permissions <code>openid</code>, <code>email</code> et
+              <code>profile</code>.
+            </p>
+            <ul>
+              <li>l’identifiant Google stable du compte (<code>sub</code>) ;</li>
+              <li>l’adresse email et son état de vérification ;</li>
+              <li>le nom d’affichage et l’avatar, lorsqu’ils sont disponibles.</li>
+            </ul>
+            <p>
+              Le jeton d’accès Google est utilisé uniquement côté serveur pour obtenir ces
+              informations pendant la connexion. Il n’est ni envoyé au navigateur, ni conservé en
+              base de données. Les données Google ne sont pas vendues et ne servent pas à la
+              publicité.
             </p>
           </section>
 
           <section id="cookies">
-            <h2>5. Cookies et stockage de session</h2>
+            <h2>6. Cookies et stockage de session</h2>
             <p>
               Le service utilise uniquement les cookies nécessaires à l’authentification et à la
               sécurité. Ils ne servent pas à la publicité comportementale.
@@ -250,9 +303,14 @@ const sections = [
                     <td>Secure, SameSite</td>
                   </tr>
                   <tr>
-                    <td><code>vel_tiktok_oauth_state</code></td>
-                    <td>Sécuriser temporairement le retour de connexion TikTok</td>
-                    <td>Secure, HttpOnly, durée limitée</td>
+                    <td><code>vel_google_oauth_state</code></td>
+                    <td>Vérifier l’origine du retour OAuth Google</td>
+                    <td>Temporaire, Secure, HttpOnly, SameSite</td>
+                  </tr>
+                  <tr>
+                    <td><code>vel_google_account_type</code></td>
+                    <td>Conserver le choix client ou vendeur pendant la redirection</td>
+                    <td>Temporaire, Secure, HttpOnly, SameSite</td>
                   </tr>
                 </tbody>
               </table>
@@ -260,7 +318,7 @@ const sections = [
           </section>
 
           <section id="destinataires">
-            <h2>6. Destinataires et sous-traitants</h2>
+            <h2>7. Destinataires et sous-traitants</h2>
             <p>Les données sont accessibles uniquement selon le besoin :</p>
             <ul>
               <li>aux personnes habilitées de CIACEMS ;</li>
@@ -272,7 +330,8 @@ const sections = [
                 aux prestataires d’hébergement, de messagerie et d’infrastructure agissant sur
                 instruction de CIACEMS ;
               </li>
-              <li>à TikTok lorsque l’utilisateur demande la connexion sociale ;</li>
+              <li>à IKODDI pour envoyer et vérifier le code OTP demandé par l’utilisateur ;</li>
+              <li>à Google lorsque l’utilisateur choisit volontairement ce mode de connexion ;</li>
               <li>aux autorités légalement habilitées, sur demande valable.</li>
             </ul>
             <p>
@@ -282,10 +341,10 @@ const sections = [
           </section>
 
           <section id="transferts">
-            <h2>7. Hébergement et transferts internationaux</h2>
+            <h2>8. Hébergement et transferts internationaux</h2>
             <p>
               L’infrastructure principale est administrée pour le compte de CIACEMS. Certains
-              prestataires, notamment TikTok ou les services techniques et de messagerie, peuvent
+              prestataires, notamment Google et les services techniques ou de messagerie, peuvent
               traiter des données hors de Côte d’Ivoire.
             </p>
             <p>
@@ -296,7 +355,7 @@ const sections = [
           </section>
 
           <section id="conservation">
-            <h2>8. Durées de conservation</h2>
+            <h2>9. Durées de conservation</h2>
             <ul>
               <li>
                 <strong>Compte et profil :</strong> pendant l’utilisation du service, puis le temps
@@ -328,7 +387,7 @@ const sections = [
           </section>
 
           <section id="securite">
-            <h2>9. Mesures de sécurité</h2>
+            <h2>10. Mesures de sécurité</h2>
             <p>
               Des mesures techniques et organisationnelles sont mises en œuvre pour limiter la
               perte, l’altération et l’accès non autorisé : chiffrement TLS, mots de passe hachés,
@@ -342,7 +401,7 @@ const sections = [
           </section>
 
           <section id="droits">
-            <h2>10. Vos droits sur les données</h2>
+            <h2>11. Vos droits sur les données</h2>
             <p>
               Conformément à la loi ivoirienne n° 2013-450 du 19 juin 2013, la personne concernée
               peut notamment demander :
@@ -351,7 +410,10 @@ const sections = [
               <li>l’information et l’accès aux données la concernant ;</li>
               <li>la rectification ou la mise à jour de données inexactes ;</li>
               <li>l’opposition à un traitement pour un motif légitime et à toute prospection ;</li>
-              <li>la suppression, l’effacement ou le verrouillage lorsque les conditions sont réunies ;</li>
+              <li>
+                la suppression, l’effacement ou le verrouillage lorsque les conditions sont réunies
+                ;
+              </li>
               <li>le retrait de son consentement lorsqu’un traitement repose sur celui-ci ;</li>
               <li>la portabilité des données dans un format structuré et couramment utilisé.</li>
             </ul>
@@ -370,13 +432,13 @@ const sections = [
                 rel="noopener noreferrer"
                 target="_blank"
               >
-                autoritedeprotection.ci
-              </a>.
+                autoritedeprotection.ci </a
+              >.
             </p>
           </section>
 
           <section id="mineurs">
-            <h2>11. Protection des mineurs</h2>
+            <h2>12. Protection des mineurs</h2>
             <p>
               Le service commercial n’est pas destiné à être utilisé de manière autonome par une
               personne ne disposant pas de la capacité juridique requise. Un mineur doit agir sous
@@ -385,7 +447,7 @@ const sections = [
           </section>
 
           <section id="contact">
-            <h2>12. Évolution de la politique et contact</h2>
+            <h2>13. Évolution de la politique et contact</h2>
             <p>
               Cette politique peut évoluer pour refléter une modification du service, des
               prestataires ou de la réglementation. La date de version est indiquée en haut de page.
@@ -398,8 +460,8 @@ const sections = [
               Email :
               <a href="mailto:contact@vendeursenlive.shop">contact@vendeursenlive.shop</a><br />
               Téléphone : <a href="tel:+2250797969394">+225 07 97 96 93 94</a><br />
-              Siège social : Abidjan, Cocody, Angré 8e Tranche, Cité EVE, lot 664, îlot 43 —
-              09 BP 3815 Abidjan 09, Côte d’Ivoire
+              Siège social : Abidjan, Cocody, Angré 8e Tranche, Cité EVE, lot 664, îlot 43 — 09 BP
+              3815 Abidjan 09, Côte d’Ivoire
             </p>
           </section>
         </article>

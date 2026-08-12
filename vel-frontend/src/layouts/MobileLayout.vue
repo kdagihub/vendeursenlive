@@ -7,7 +7,7 @@ import MobileHeader from '@/components/MobileHeader.vue'
 <template>
   <div class="min-h-screen bg-[#f7fafc] text-slate-950 lg:hidden dark:bg-[#0d0d0e] dark:text-white">
     <MobileHeader />
-    <main class="min-h-screen pt-15">
+    <main class="min-h-screen pt-20">
       <slot />
       <LegalFooter mobile-nav-offset />
     </main>

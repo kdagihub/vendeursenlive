@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_live_sessions_one_ongoing_per_seller;

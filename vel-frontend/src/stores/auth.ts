@@ -14,11 +14,21 @@ export interface AuthUser {
   is_seller: boolean
   is_admin: boolean
   account_verified: boolean
+  can_change_password?: boolean
   verification_channel?: 'email' | 'phone' | null
+  full_name?: string | null
+  avatar_url?: string | null
+  email?: string | null
+  phone_number?: string | null
+  account_status?: 'active' | 'disabled'
+  auth_methods?: Array<'email' | 'phone' | 'google' | 'tiktok'>
+  shop_name?: string | null
+  default_location?: string | null
+  member_since?: string
 }
 
 export interface RegisterPayload {
-  full_name: string
+  full_name?: string
   email?: string
   phone_number?: string
   password: string
@@ -31,6 +41,20 @@ export interface RegisterPayload {
 export interface LoginPayload {
   identifier: string
   password: string
+}
+
+export interface PhoneOtpRequestPayload {
+  phone_number: string
+  purpose: 'login' | 'register'
+  full_name?: string
+  account_type?: AccountType
+  shop_name?: string
+}
+
+export interface PhoneOtpChallenge {
+  challenge_id: string
+  expires_in_seconds: number
+  resend_after_seconds: number
 }
 
 export const useAuthStore = defineStore('auth', () => {
@@ -48,6 +72,14 @@ export const useAuthStore = defineStore('auth', () => {
     if (user.value.is_seller) return 'Vendeur'
     return 'Client'
   })
+  const displayName = computed(
+    () => user.value?.full_name || user.value?.shop_name || accountLabel.value,
+  )
+  const profileComplete = computed(
+    () =>
+      Boolean(user.value?.full_name) &&
+      (user.value?.is_seller !== true || Boolean(user.value.shop_name)),
+  )
 
   async function register(payload: RegisterPayload) {
     await runAuthRequest(async () => {
@@ -65,11 +97,38 @@ export const useAuthStore = defineStore('auth', () => {
     })
   }
 
-  async function fetchMe() {
+  async function requestPhoneOtp(payload: PhoneOtpRequestPayload) {
+    let challenge: PhoneOtpChallenge | null = null
+    await runAuthRequest(async () => {
+      const response = await api.post<PhoneOtpChallenge>(
+        '/auth/phone/otp/request',
+        compactPayload(payload),
+      )
+      challenge = response.data
+    })
+    return challenge as PhoneOtpChallenge | null
+  }
+
+  async function verifyPhoneOtp(challengeId: string, otp: string) {
+    await runAuthRequest(async () => {
+      const response = await api.post<AuthUser>('/auth/phone/otp/verify', {
+        challenge_id: challengeId,
+        otp,
+      })
+      user.value = response.data
+      await ensureCsrfToken()
+    })
+  }
+
+  function startGoogleOAuth(accountType?: AccountType) {
+    window.location.assign(buildGoogleOAuthStartUrl(API_BASE_URL, accountType))
+  }
+
+  async function fetchMe(refreshCsrf = true) {
     try {
       const response = await api.get<AuthUser>('/auth/me')
       user.value = response.data
-      await ensureCsrfToken()
+      if (refreshCsrf) await ensureCsrfToken()
       return true
     } catch {
       user.value = null
@@ -82,6 +141,7 @@ export const useAuthStore = defineStore('auth', () => {
       await ensureCsrfToken()
       const response = await api.post<AuthUser>('/auth/refresh')
       user.value = response.data
+      await fetchMe(false)
     })
   }
 
@@ -107,6 +167,14 @@ export const useAuthStore = defineStore('auth', () => {
         current_password: currentPassword,
         new_password: newPassword,
       })
+    })
+  }
+
+  async function updateProfile(fullName?: string, shopName?: string) {
+    await runAuthRequest(async () => {
+      await ensureCsrfToken()
+      await api.patch('/auth/profile', compactPayload({ full_name: fullName, shop_name: shopName }))
+      await fetchMe(false)
     })
   }
 
@@ -149,10 +217,6 @@ export const useAuthStore = defineStore('auth', () => {
     })
   }
 
-  function startTikTokLogin() {
-    window.location.assign(`${API_BASE_URL}/auth/tiktok/start`)
-  }
-
   async function runAuthRequest(action: () => Promise<void>) {
     loading.value = true
     error.value = null
@@ -172,21 +236,32 @@ export const useAuthStore = defineStore('auth', () => {
     changePassword,
     confirmPasswordReset,
     confirmEmailVerification,
+    displayName,
     error,
     fetchMe,
     isAuthenticated,
     loading,
     login,
     logout,
+    profileComplete,
     refresh,
     register,
     requestEmailVerification,
+    requestPhoneOtp,
     requestPasswordReset,
     requiresEmailVerification,
-    startTikTokLogin,
+    startGoogleOAuth,
     user,
+    updateProfile,
+    verifyPhoneOtp,
   }
 })
+
+export function buildGoogleOAuthStartUrl(baseUrl: string, accountType?: AccountType): string {
+  const endpoint = new URL(`${baseUrl.replace(/\/$/, '')}/auth/google/start`)
+  if (accountType) endpoint.searchParams.set('account_type', accountType)
+  return endpoint.toString()
+}
 
 function compactPayload<T extends object>(payload: T): Partial<T> {
   return Object.fromEntries(
@@ -199,14 +274,15 @@ function toPublicError(requestError: unknown): string {
     const status = requestError.response?.status
     const message = extractMessage(requestError.response?.data)
 
-    if (message) {
-      return message
-    }
-
-    if (status === 401) return 'Identifiants invalides ou session expirée.'
+    if (status === 401) return 'Identifiants ou code de vérification invalides.'
     if (status === 403) return 'La protection CSRF a refusé la requête.'
     if (status === 409) return 'Un compte existe déjà avec ces informations.'
     if (status === 429) return 'Trop de tentatives. Réessaie dans quelques instants.'
+    if (status === 503) return 'Le service SMS est temporairement indisponible.'
+
+    if (message) {
+      return message
+    }
   }
 
   return 'Une erreur est survenue. Réessaie dans quelques instants.'

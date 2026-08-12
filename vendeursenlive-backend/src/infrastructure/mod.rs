@@ -4,4 +4,6 @@ pub mod database;
 pub mod email;
 pub mod messaging;
 pub mod oauth;
+pub mod otp;
+pub mod tiktok;
 pub mod websockets;

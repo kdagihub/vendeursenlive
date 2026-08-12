@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowRight, Search, SlidersHorizontal } from '@lucide/vue'
+import { ArrowRight } from '@lucide/vue'
 import { computed } from 'vue'
 
 import { useLiveDiscoveryStore } from '@/stores/liveDiscovery'
@@ -11,21 +11,6 @@ const heroLive = computed(() => discovery.featuredLives[0])
 
 <template>
   <div class="mx-auto w-full max-w-[1500px] px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
-    <section id="mobile-search" class="mb-5 lg:hidden">
-      <label
-        class="flex h-11 items-center gap-3 rounded-md border border-slate-300 bg-white px-3 dark:border-white/15 dark:bg-white/8"
-      >
-        <Search :size="19" class="text-slate-500" />
-        <input
-          v-model="discovery.searchQuery"
-          class="min-w-0 flex-1 bg-transparent text-sm outline-none dark:text-white"
-          placeholder="Produit, vendeur, commune"
-          type="search"
-        />
-        <SlidersHorizontal :size="19" class="text-slate-500" />
-      </label>
-    </section>
-
     <section
       v-if="heroLive"
       class="relative mb-9 hidden min-h-[360px] overflow-hidden rounded-md bg-[#17121f] lg:block"

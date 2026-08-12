@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import ToastService from 'primevue/toastservice'
 import App from '../App.vue'
 
 describe('App', () => {
@@ -14,7 +15,7 @@ describe('App', () => {
         { path: '/login', component: { template: '<div />' } },
         { path: '/terms', component: { template: '<div />' } },
         { path: '/privacy', component: { template: '<div />' } },
-        { path: '/app', component: { template: '<div />' } },
+        { path: '/profile', component: { template: '<div />' } },
       ],
     })
     await router.push('/login')
@@ -22,11 +23,12 @@ describe('App', () => {
 
     const wrapper = mount(App, {
       global: {
-        plugins: [createPinia(), router],
+        plugins: [createPinia(), router, ToastService],
         stubs: {
           Button: true,
           Dialog: true,
           Message: true,
+          Toast: true,
           RouterView: true,
         },
       },

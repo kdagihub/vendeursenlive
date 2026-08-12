@@ -103,6 +103,7 @@ export const useLiveDiscoveryStore = defineStore('live-discovery', () => {
   const activeCategory = ref<string>('all')
 
   const featuredLives = computed(() => lives.value.filter((live) => live.featured))
+  const allLives = computed(() => lives.value)
   const visibleCategories = computed(() =>
     categories
       .filter((category) => activeCategory.value === 'all' || category.id === activeCategory.value)
@@ -140,6 +141,7 @@ export const useLiveDiscoveryStore = defineStore('live-discovery', () => {
   return {
     activeCategory,
     adjacentLive,
+    allLives,
     categories,
     featuredLives,
     findLive,

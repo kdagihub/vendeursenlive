@@ -8,6 +8,7 @@ import type { LivePreview } from '@/types/live'
 const props = defineProps<{
   live: LivePreview
   priority?: boolean
+  fluid?: boolean
 }>()
 
 const video = ref<HTMLVideoElement | null>(null)
@@ -64,7 +65,8 @@ function formatViewers(viewerCount: number) {
 <template>
   <RouterLink
     :to="`/live/${live.id}`"
-    class="group relative block aspect-[4/5] w-58 shrink-0 overflow-hidden rounded-md bg-[#17121f] text-white no-underline sm:w-64 lg:w-60"
+    class="group relative block aspect-[4/5] shrink-0 overflow-hidden rounded-md bg-[#17121f] text-white no-underline"
+    :class="fluid ? 'w-full' : 'w-58 sm:w-64 lg:w-60'"
     :aria-label="`Regarder le live de ${live.sellerName}`"
   >
     <video

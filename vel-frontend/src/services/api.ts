@@ -13,7 +13,13 @@ export const api = axios.create({
   withCredentials: true,
 })
 
-const csrfProtectedPaths = ['/auth/refresh', '/auth/logout', '/auth/change-password']
+const csrfProtectedPaths = [
+  '/auth/refresh',
+  '/auth/logout',
+  '/auth/change-password',
+  '/auth/profile',
+  '/seller/lives',
+]
 const unsafeMethods = new Set(['post', 'put', 'patch', 'delete'])
 
 export function getCookie(name: string): string | null {
@@ -43,7 +49,11 @@ api.interceptors.request.use((config) => {
   const method = config.method?.toLowerCase()
   const url = config.url ?? ''
 
-  if (method && unsafeMethods.has(method) && csrfProtectedPaths.some((path) => url.startsWith(path))) {
+  if (
+    method &&
+    unsafeMethods.has(method) &&
+    csrfProtectedPaths.some((path) => url.startsWith(path))
+  ) {
     const csrfToken = getCookie('vel_csrf_token')
 
     if (csrfToken) {

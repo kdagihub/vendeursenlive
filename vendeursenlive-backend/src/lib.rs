@@ -5,7 +5,7 @@ pub mod presentation;
 
 use infrastructure::{
     auth::jwt::JwtService,
-    config::{AuthConfig, EmailConfig, TikTokConfig},
+    config::{AuthConfig, EmailConfig, GoogleConfig, IkoddiConfig, TikTokConfig},
 };
 
 #[derive(Clone)]
@@ -15,5 +15,7 @@ pub struct AppState {
     pub jwt: JwtService,
     pub auth_config: AuthConfig,
     pub tiktok_config: TikTokConfig,
+    pub google_config: GoogleConfig,
     pub email_config: EmailConfig,
+    pub ikoddi_config: IkoddiConfig,
 }

@@ -69,6 +69,19 @@ impl UserAuthIdentity {
         )
     }
 
+    pub fn verified_phone(user_id: Uuid, phone_number: PhoneNumber) -> Self {
+        Self::new(
+            user_id,
+            AuthProvider::Phone,
+            None,
+            None,
+            Some(phone_number),
+            None,
+            false,
+            true,
+        )
+    }
+
     pub fn oauth(user_id: Uuid, provider: AuthProvider, provider_subject: String) -> Self {
         Self::new(
             user_id,
@@ -78,6 +91,19 @@ impl UserAuthIdentity {
             None,
             None,
             false,
+            false,
+        )
+    }
+
+    pub fn google(user_id: Uuid, provider_subject: String, email: Option<EmailAddress>) -> Self {
+        Self::new(
+            user_id,
+            AuthProvider::Google,
+            Some(provider_subject),
+            email,
+            None,
+            None,
+            true,
             false,
         )
     }
@@ -147,5 +173,30 @@ mod tests {
 
         assert!(identity.is_account_verified());
         assert_eq!(identity.verification_channel(), None);
+    }
+
+    #[test]
+    fn otp_phone_identity_is_verified_without_a_password() {
+        let identity = UserAuthIdentity::verified_phone(
+            Uuid::now_v7(),
+            PhoneNumber::new("+2250700000000").expect("valid phone"),
+        );
+
+        assert!(identity.is_account_verified());
+        assert!(identity.password_hash.is_none());
+        assert_eq!(identity.verification_channel(), None);
+    }
+
+    #[test]
+    fn google_identity_uses_a_verified_email_without_a_password() {
+        let identity = UserAuthIdentity::google(
+            Uuid::now_v7(),
+            "google-subject".to_owned(),
+            Some(EmailAddress::new("client@example.com").expect("valid email")),
+        );
+
+        assert!(identity.is_account_verified());
+        assert!(identity.email_verified);
+        assert!(identity.password_hash.is_none());
     }
 }

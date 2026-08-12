@@ -1,7 +1,11 @@
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::application::errors::ApplicationError;
+use crate::application::{
+    dtos::auth::{AccountType, PhoneOtpPurpose},
+    errors::ApplicationError,
+};
 
 pub trait PasswordHasher: Send + Sync {
     fn hash_password(&self, password: &str) -> Result<String, ApplicationError>;
@@ -70,4 +74,73 @@ pub trait TikTokOAuthClient: Send + Sync {
         &self,
         access_token: &str,
     ) -> Result<TikTokUserProfile, ApplicationError>;
+}
+
+#[derive(Debug, Clone)]
+pub struct GoogleTokenResponse {
+    pub access_token: String,
+    pub scope: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct GoogleUserProfile {
+    pub subject: String,
+    pub email: String,
+    pub email_verified: bool,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+}
+
+#[async_trait]
+pub trait GoogleOAuthClient: Send + Sync {
+    async fn exchange_code(&self, code: &str) -> Result<GoogleTokenResponse, ApplicationError>;
+    async fn fetch_user_profile(
+        &self,
+        access_token: &str,
+    ) -> Result<GoogleUserProfile, ApplicationError>;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PhoneOtpChallenge {
+    pub id: Uuid,
+    pub phone_number: String,
+    pub provider_token: String,
+    pub purpose: PhoneOtpPurpose,
+    pub full_name: Option<String>,
+    pub account_type: Option<AccountType>,
+    pub shop_name: Option<String>,
+}
+
+#[async_trait]
+pub trait PhoneOtpProvider: Send + Sync {
+    async fn request_otp(&self, identity: &str) -> Result<String, ApplicationError>;
+    async fn verify_otp(
+        &self,
+        identity: &str,
+        otp: &str,
+        provider_token: &str,
+    ) -> Result<bool, ApplicationError>;
+}
+
+#[async_trait]
+pub trait PhoneOtpChallengeStore: Send + Sync {
+    async fn reserve_send(
+        &self,
+        phone_number: &str,
+        ttl_seconds: i64,
+    ) -> Result<bool, ApplicationError>;
+    async fn release_send(&self, phone_number: &str) -> Result<(), ApplicationError>;
+    async fn save(
+        &self,
+        challenge: &PhoneOtpChallenge,
+        ttl_seconds: i64,
+    ) -> Result<(), ApplicationError>;
+    async fn find(&self, challenge_id: Uuid)
+        -> Result<Option<PhoneOtpChallenge>, ApplicationError>;
+    async fn record_failed_attempt(
+        &self,
+        challenge_id: Uuid,
+        ttl_seconds: i64,
+    ) -> Result<u32, ApplicationError>;
+    async fn delete(&self, challenge_id: Uuid) -> Result<(), ApplicationError>;
 }

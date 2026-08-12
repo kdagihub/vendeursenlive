@@ -40,3 +40,6 @@ __screenshots__/
 
 # Source archive for TikTok brand assets; the app keeps only the optimized asset it uses.
 /src/assets/logo-pack/
+
+# Source archive for Google brand assets; the app keeps only the two Web icons it uses.
+/src/assets/signin-assets/

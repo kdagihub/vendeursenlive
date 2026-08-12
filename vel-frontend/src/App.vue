@@ -1,15 +1,46 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { RouterLink, RouterView, useRoute } from 'vue-router'
+import { computed, onMounted, ref } from 'vue'
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
+import { useToast } from 'primevue/usetoast'
 
 import logo from '@/assets/img/logo_vel_soft.png'
+import AccountMenu from '@/components/AccountMenu.vue'
+import BottomMenu from '@/components/BottomMenu.vue'
+import { resolveAuthDestination } from '@/composables/useAuthDialog'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
 const route = useRoute()
+const router = useRouter()
+const toast = useToast()
 const usesMarketplaceLayout = computed(() => route.meta.marketplace === true)
 const verificationSent = ref(false)
 const verificationDialogVisible = ref(false)
+const postAuthRedirectKey = 'vel_post_auth_redirect'
+
+onMounted(async () => {
+  const pendingRedirect = sessionStorage.getItem(postAuthRedirectKey)
+
+  if (!auth.isAuthenticated) {
+    const hasSession = await auth.fetchMe()
+    if (!hasSession) return
+  }
+
+  sessionStorage.removeItem(postAuthRedirectKey)
+  if (pendingRedirect !== null) {
+    await router.replace(resolveAuthDestination(pendingRedirect))
+    showAuthenticationSuccess()
+  }
+})
+
+function showAuthenticationSuccess() {
+  toast.add({
+    severity: 'success',
+    summary: 'Connexion réussie',
+    detail: `Bienvenue ${auth.displayName}. Tu es maintenant connecté.`,
+    life: 5000,
+  })
+}
 
 async function resendVerificationEmail() {
   try {
@@ -22,6 +53,8 @@ async function resendVerificationEmail() {
 </script>
 
 <template>
+  <Toast class="vel-auth-toast" position="top-center" />
+
   <RouterView v-if="usesMarketplaceLayout" />
 
   <div v-else class="app-shell">
@@ -36,7 +69,7 @@ async function resendVerificationEmail() {
       <nav class="topnav" aria-label="Navigation principale">
         <RouterLink to="/terms">CGU</RouterLink>
         <RouterLink to="/privacy">Confidentialité</RouterLink>
-        <RouterLink v-if="auth.isAuthenticated" to="/app">Mon espace</RouterLink>
+        <AccountMenu v-if="auth.isAuthenticated" />
       </nav>
     </header>
 
@@ -87,7 +120,7 @@ async function resendVerificationEmail() {
       </template>
     </Dialog>
 
-    <main class="main-surface">
+    <main class="main-surface pb-20 lg:pb-0">
       <RouterView />
     </main>
 
@@ -95,5 +128,7 @@ async function resendVerificationEmail() {
       <span>© 2026 VendeursEnLive</span>
       <span>Live commerce pour vendeurs et clients.</span>
     </footer>
+
+    <BottomMenu />
   </div>
 </template>

@@ -14,6 +14,16 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "20260710193000_add_email_verification_tokens",
         include_str!("../../../migrations/20260710193000_add_email_verification_tokens/up.sql"),
     ),
+    (
+        "20260803020000_allow_incomplete_profiles",
+        include_str!("../../../migrations/20260803020000_allow_incomplete_profiles/up.sql"),
+    ),
+    (
+        "20260803113000_ensure_one_ongoing_live_per_seller",
+        include_str!(
+            "../../../migrations/20260803113000_ensure_one_ongoing_live_per_seller/up.sql"
+        ),
+    ),
 ];
 
 pub async fn run_pending_migrations(db: &DatabaseConnection) -> anyhow::Result<()> {

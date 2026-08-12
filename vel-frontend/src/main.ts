@@ -11,6 +11,8 @@ import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
 import Password from 'primevue/password'
 import SelectButton from 'primevue/selectbutton'
+import Toast from 'primevue/toast'
+import ToastService from 'primevue/toastservice'
 
 import App from './App.vue'
 import router from './router'
@@ -35,6 +37,7 @@ app.use(PrimeVue, {
     },
   },
 })
+app.use(ToastService)
 app.use(router)
 
 app.component('Button', Button)
@@ -45,5 +48,6 @@ app.component('InputText', InputText)
 app.component('Message', Message)
 app.component('Password', Password)
 app.component('SelectButton', SelectButton)
+app.component('Toast', Toast)
 
 app.mount('#app')

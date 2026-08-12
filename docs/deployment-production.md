@@ -5,7 +5,7 @@ Domaines cibles:
 - Frontend: `https://vendeursenlive.shop`
 - Backend API: `https://api.vendeursenlive.shop`
 
-URLs à fournir à TikTok Developer Console:
+URLs TikTok conservées pour une réactivation ultérieure du Login Kit:
 
 - Website URL: `https://vendeursenlive.shop`
 - Terms of Service URL: `https://vendeursenlive.shop/terms`
@@ -37,8 +37,19 @@ Points obligatoires:
 - `EMAIL_VERIFICATION_URL=https://vendeursenlive.shop/verify-email`
 - `EMAIL_VERIFICATION_TOKEN_TTL_SECONDS=86400`
 - `EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS=60`
-- `TIKTOK_REDIRECT_URI=https://api.vendeursenlive.shop/auth/tiktok/callback`
-- `TIKTOK_SUCCESS_REDIRECT_URL=https://vendeursenlive.shop/app`
+- `IKODDI_ENABLED=true`
+- `IKODDI_BASE_URL=https://api.ikoddi.com`
+- `IKODDI_API_KEY=<secret-ikoddi>`
+- `IKODDI_ORGANIZATION_ID=<organisation-ikoddi>`
+- `IKODDI_OTP_APP_ID=<application-otp-ikoddi>`
+- `OTP_CHALLENGE_TTL_SECONDS=300`
+- `OTP_RESEND_COOLDOWN_SECONDS=60`
+- `OTP_MAX_ATTEMPTS=5`
+- `GOOGLE_CLIENT_ID=<google-web-client-id>`
+- `GOOGLE_CLIENT_SECRET=<google-web-client-secret>`
+- `GOOGLE_REDIRECT_URI=https://api.vendeursenlive.shop/auth/google/callback`
+- `GOOGLE_SCOPES=openid,email,profile`
+- `GOOGLE_SUCCESS_REDIRECT_URL=https://vendeursenlive.shop/`
 
 ## Services Dokploy VEL
 
@@ -118,10 +129,48 @@ Le frontend et l'API sont sur deux sous-domaines différents. Le cookie CSRF doi
 être posé sur `.vendeursenlive.shop` pour que le frontend puisse lire `vel_csrf_token`
 et le recopier dans le header `X-CSRF-Token`.
 
-## TikTok
+## IKODDI OTP
 
-Le secret TikTok déjà partagé pendant le développement doit être régénéré avant la
-mise en production. Dans TikTok Developer Console, enregistrer exactement:
+Créer une clé API limitée à la permission « Demander et vérifier un OTP ». La clé,
+l’identifiant d’organisation et l’identifiant de l’application OTP doivent être injectés
+uniquement dans le service backend Dokploy. Ne jamais les exposer dans les variables Vite.
+
+Valider d’abord le parcours avec `https://api.staging.ikoddi.com`, puis utiliser
+`https://api.ikoddi.com` en production. Redis doit rester disponible : il conserve le challenge
+opaque pendant cinq minutes et empêche les renvois trop rapprochés.
+
+## Google OAuth
+
+Dans Google Cloud Console, utiliser un client OAuth de type **Application Web** et enregistrer
+exactement l’URI de redirection autorisée suivante:
+
+```text
+https://api.vendeursenlive.shop/auth/google/callback
+```
+
+Configurer l’écran de consentement avec le nom `VendeursEnLive`, le domaine autorisé
+`vendeursenlive.shop`, la page d’accueil, les CGU et la politique de confidentialité déjà publiées.
+Les seuls scopes demandés sont `openid`, `email` et `profile`.
+
+Le client ID et le secret sont injectés uniquement dans le service backend Dokploy. Aucun secret
+Google ne doit être placé dans une variable `VITE_*`. Après modification des variables, redéployer
+le backend afin que sa configuration soit relue.
+
+L’authentification actuelle utilise le flux OAuth 2.0 **Application de serveur Web** : Vue redirige
+vers `/auth/google/start`, puis Rust échange le code et récupère le profil OpenID Connect. Le SDK
+JavaScript Google Identity Services et Google One Tap ne sont pas chargés pour ce parcours. Ils
+restent une évolution optionnelle qui nécessiterait un endpoint distinct chargé de valider le JWT
+d’identité Google reçu par le navigateur.
+
+Le bouton français utilise le logo officiel non modifié du pack Google Android + Web. Google
+autorise la localisation du libellé ; conserver « Continuer avec Google » et les variantes officielles
+claire/sombre du logo.
+
+## TikTok (en veille)
+
+Le Login Kit n’est plus exposé dans l’interface. Les routes sont conservées pour une activation
+ultérieure et les variables `TIKTOK_*` peuvent rester absentes. Lors de la réactivation, régénérer
+le secret et enregistrer exactement:
 
 ```text
 https://api.vendeursenlive.shop/auth/tiktok/callback
@@ -141,10 +190,10 @@ Le backend utilise:
 TIKTOK_AUTH_URL=https://www.tiktok.com/v2/auth/authorize/
 TIKTOK_TOKEN_URL=https://open.tiktokapis.com/v2/oauth/token/
 TIKTOK_USER_INFO_URL=https://open.tiktokapis.com/v2/user/info/
-TIKTOK_SUCCESS_REDIRECT_URL=https://vendeursenlive.shop/app
+TIKTOK_SUCCESS_REDIRECT_URL=https://vendeursenlive.shop/
 ```
 
-## Vidéo demo TikTok
+## Vidéo demo TikTok (à conserver pour une reprise de la review)
 
 TikTok demande une vidéo montrant le flux complet sur le domaine web déclaré. Pour
 la review de VendeursEnLive, enregistrer une vidéo courte, claire, en MP4 ou MOV,
@@ -155,7 +204,7 @@ avec ce scénario:
 3. Cliquer sur le bouton.
 4. Montrer la redirection vers TikTok.
 5. Autoriser le scope `user.info.basic`.
-6. Montrer le retour automatique vers `https://vendeursenlive.shop/app`.
+6. Montrer le retour automatique vers `https://vendeursenlive.shop/`.
 7. Montrer que l'utilisateur est connecté dans VendeursEnLive.
 8. Cliquer sur `Déconnexion`.
 

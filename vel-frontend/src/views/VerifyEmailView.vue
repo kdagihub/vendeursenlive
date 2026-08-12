@@ -43,8 +43,8 @@ onMounted(async () => {
         </Message>
 
         <p class="legal-note">
-          <RouterLink :to="auth.isAuthenticated ? '/app' : '/login'">
-            {{ auth.isAuthenticated ? 'Retour à mon espace' : 'Retour à la connexion' }}
+          <RouterLink :to="auth.isAuthenticated ? '/profile' : '/login'">
+            {{ auth.isAuthenticated ? 'Retour à mon profil' : 'Retour à la connexion' }}
           </RouterLink>
         </p>
       </template>

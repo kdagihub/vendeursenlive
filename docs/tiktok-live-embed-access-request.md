@@ -58,7 +58,11 @@ need LIVE Embed access.
 
 ## Current status
 
-- TikTok Login Kit: submitted for production review
-- Requested Login Kit scope: `user.info.basic`
+- VendeursEnLive authentication: phone/email and Google OAuth 2.0
+- TikTok Login Kit: paused and not required by the LIVE Embed flow
 - LIVE Embed frontend integration: implemented behind a disabled build flag
 - LIVE Embed production flag: `VITE_TIKTOK_LIVE_EMBED_ENABLED=false`
+- Seller LIVE link normalization and session management: implemented
+- Authenticated user space: complete profile, contact, verification and seller shop information
+- TikTok developer application: approved
+- LIVE Embed access request: submitted, domain allowlist confirmation pending

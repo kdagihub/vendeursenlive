@@ -10,8 +10,16 @@ pub enum ApplicationError {
     InvalidCredentials,
     #[error("resource conflict: {0}")]
     Conflict(String),
+    #[error("resource not found: {0}")]
+    NotFound(String),
+    #[error("forbidden: {0}")]
+    Forbidden(String),
     #[error("unauthorized")]
     Unauthorized,
+    #[error("too many requests: {0}")]
+    TooManyRequests(String),
+    #[error("service unavailable: {0}")]
+    ServiceUnavailable(String),
     #[error("infrastructure error: {0}")]
     Infrastructure(String),
 }
@@ -20,6 +28,7 @@ impl From<DomainError> for ApplicationError {
     fn from(error: DomainError) -> Self {
         match error {
             DomainError::BusinessRuleViolation(message) => Self::Validation(message),
+            DomainError::Conflict(message) => Self::Conflict(message),
             DomainError::Repository(message) => Self::Infrastructure(message),
         }
     }

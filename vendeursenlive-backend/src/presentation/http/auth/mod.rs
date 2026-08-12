@@ -11,15 +11,18 @@ use uuid::Uuid;
 use crate::{
     application::{
         dtos::auth::{
-            AuthResponse, ChangePasswordRequest, ConfirmEmailVerificationRequest,
+            AccountType, AuthResponse, ChangePasswordRequest, ConfirmEmailVerificationRequest,
             ConfirmPasswordResetRequest, LoginRequest, PasswordResetRequest, RefreshSessionRequest,
-            RegisterRequest, RequestPasswordResetCommand,
+            RegisterRequest, RequestPasswordResetCommand, RequestPhoneOtpRequest,
+            UpdateProfileRequest, VerifyPhoneOtpRequest,
         },
         errors::ApplicationError,
         use_cases::auth::{
             ChangePasswordUseCase, ConfirmEmailVerificationUseCase, ConfirmPasswordResetUseCase,
-            LoginUserUseCase, LogoutUseCase, RefreshSessionUseCase, RegisterUserUseCase,
-            RequestEmailVerificationUseCase, RequestPasswordResetUseCase, TikTokLoginUseCase,
+            GetCurrentUserProfileUseCase, GoogleLoginUseCase, LoginUserUseCase, LogoutUseCase,
+            RefreshSessionUseCase, RegisterUserUseCase, RequestEmailVerificationUseCase,
+            RequestPasswordResetUseCase, RequestPhoneOtpUseCase, TikTokLoginUseCase,
+            UpdateProfileUseCase, VerifyPhoneOtpUseCase,
         },
     },
     infrastructure::{
@@ -30,7 +33,8 @@ use crate::{
             SeaOrmSellerProfileRepository, SeaOrmUserAuthIdentityRepository, SeaOrmUserRepository,
         },
         email::SmtpAuthEmailSender,
-        oauth::ReqwestTikTokOAuthClient,
+        oauth::{ReqwestGoogleOAuthClient, ReqwestTikTokOAuthClient},
+        otp::{ikoddi::IkoddiPhoneOtpProvider, redis_store::RedisPhoneOtpChallengeStore},
     },
     presentation::extractors::authenticated_user::AuthenticatedUser,
     AppState,
@@ -41,16 +45,21 @@ pub(crate) const CSRF_TOKEN_COOKIE: &str = "vel_csrf_token";
 const REFRESH_TOKEN_COOKIE: &str = "vel_refresh_token";
 const REFRESH_SESSION_COOKIE: &str = "vel_refresh_session";
 const TIKTOK_STATE_COOKIE: &str = "vel_tiktok_oauth_state";
+const GOOGLE_STATE_COOKIE: &str = "vel_google_oauth_state";
+const GOOGLE_ACCOUNT_TYPE_COOKIE: &str = "vel_google_account_type";
 
 pub fn configure(config: &mut web::ServiceConfig) {
     config.service(
         web::scope("/auth")
             .route("/register", web::post().to(register))
             .route("/login", web::post().to(login))
+            .route("/phone/otp/request", web::post().to(request_phone_otp))
+            .route("/phone/otp/verify", web::post().to(verify_phone_otp))
             .route("/csrf", web::get().to(csrf))
             .route("/refresh", web::post().to(refresh))
             .route("/logout", web::post().to(logout))
             .route("/change-password", web::post().to(change_password))
+            .route("/profile", web::patch().to(update_profile))
             .route(
                 "/password-reset/request",
                 web::post().to(request_password_reset),
@@ -69,6 +78,8 @@ pub fn configure(config: &mut web::ServiceConfig) {
             )
             .route("/tiktok/start", web::get().to(tiktok_start))
             .route("/tiktok/callback", web::get().to(tiktok_callback))
+            .route("/google/start", web::get().to(google_start))
+            .route("/google/callback", web::get().to(google_callback))
             .route("/me", web::get().to(me)),
     );
 }
@@ -104,11 +115,122 @@ async fn tiktok_start(state: web::Data<AppState>) -> Result<HttpResponse, AuthHt
     Ok(HttpResponse::Found()
         .insert_header((LOCATION, authorization_url))
         .cookie(oauth_state_cookie(
+            TIKTOK_STATE_COOKIE,
             oauth_state,
             state.auth_config.cookie_secure,
-            state.auth_config.cookie_domain.clone(),
         ))
         .finish())
+}
+
+#[derive(Debug, Deserialize)]
+struct GoogleStartQuery {
+    account_type: Option<AccountType>,
+}
+
+async fn google_start(
+    state: web::Data<AppState>,
+    query: web::Query<GoogleStartQuery>,
+) -> Result<HttpResponse, AuthHttpError> {
+    let client_id = state.google_config.client_id.as_deref().ok_or_else(|| {
+        ApplicationError::ServiceUnavailable("Google authentication is not configured".to_owned())
+    })?;
+    let redirect_uri = state.google_config.redirect_uri.as_deref().ok_or_else(|| {
+        ApplicationError::ServiceUnavailable("Google authentication is not configured".to_owned())
+    })?;
+    let oauth_state = Uuid::new_v4().to_string();
+    let account_type = query.account_type.unwrap_or(AccountType::Customer);
+    let authorization_url = build_google_authorization_url(
+        &state.google_config.auth_url,
+        client_id,
+        redirect_uri,
+        &state.google_config.scopes,
+        &oauth_state,
+    );
+
+    Ok(HttpResponse::Found()
+        .insert_header((LOCATION, authorization_url))
+        .cookie(oauth_state_cookie(
+            GOOGLE_STATE_COOKIE,
+            oauth_state,
+            state.auth_config.cookie_secure,
+        ))
+        .cookie(oauth_account_type_cookie(
+            account_type,
+            state.auth_config.cookie_secure,
+        ))
+        .finish())
+}
+
+#[derive(Debug, Deserialize)]
+struct GoogleCallbackQuery {
+    code: Option<String>,
+    state: Option<String>,
+    error: Option<String>,
+}
+
+async fn google_callback(
+    state: web::Data<AppState>,
+    request: HttpRequest,
+    query: web::Query<GoogleCallbackQuery>,
+) -> Result<HttpResponse, AuthHttpError> {
+    if query.error.is_some() {
+        return Err(ApplicationError::Unauthorized.into());
+    }
+
+    let expected_state = request
+        .cookie(GOOGLE_STATE_COOKIE)
+        .ok_or(ApplicationError::Unauthorized)?
+        .value()
+        .to_owned();
+    let returned_state = query
+        .state
+        .as_deref()
+        .ok_or(ApplicationError::Unauthorized)?;
+
+    if expected_state != returned_state {
+        return Err(ApplicationError::Unauthorized.into());
+    }
+
+    let authorization_code = query.code.as_deref().ok_or_else(|| {
+        ApplicationError::Validation("Google authorization code is missing".to_owned())
+    })?;
+    let account_type = request
+        .cookie(GOOGLE_ACCOUNT_TYPE_COOKIE)
+        .and_then(|cookie| match cookie.value() {
+            "seller" => Some(AccountType::Seller),
+            "customer" => Some(AccountType::Customer),
+            _ => None,
+        })
+        .unwrap_or(AccountType::Customer);
+    let use_case = GoogleLoginUseCase::new(
+        Arc::new(SeaOrmUserRepository::new(state.db.clone())),
+        Arc::new(SeaOrmUserAuthIdentityRepository::new(state.db.clone())),
+        Arc::new(SeaOrmAuthSessionRepository::new(state.db.clone())),
+        Arc::new(SeaOrmCustomerProfileRepository::new(state.db.clone())),
+        Arc::new(SeaOrmSellerProfileRepository::new(state.db.clone())),
+        Arc::new(ReqwestGoogleOAuthClient::new(state.google_config.clone())),
+        Arc::new(UuidRefreshTokenService),
+        Arc::new(state.jwt.clone()),
+        state.auth_config.access_token_ttl_seconds,
+        state.auth_config.refresh_token_ttl_seconds,
+    );
+    let response = use_case.execute(authorization_code, account_type).await?;
+
+    Ok(auth_cookie_redirect_response(
+        HttpResponse::Found(),
+        &state,
+        response,
+        &state.google_config.success_redirect_url,
+    )
+    .cookie(clear_oauth_cookie(
+        GOOGLE_STATE_COOKIE,
+        state.auth_config.cookie_secure,
+    ))
+    .cookie(clear_oauth_cookie(
+        GOOGLE_ACCOUNT_TYPE_COOKIE,
+        state.auth_config.cookie_secure,
+    ))
+    .finish())
 }
 
 #[derive(Debug, Deserialize)]
@@ -169,10 +291,9 @@ async fn tiktok_callback(
         response,
         &state.tiktok_config.success_redirect_url,
     )
-    .cookie(clear_cookie(
+    .cookie(clear_oauth_cookie(
         TIKTOK_STATE_COOKIE,
         state.auth_config.cookie_secure,
-        state.auth_config.cookie_domain.clone(),
     ))
     .finish())
 }
@@ -231,6 +352,50 @@ async fn login(
     Ok(auth_cookie_response(HttpResponse::Ok(), &state, response))
 }
 
+async fn request_phone_otp(
+    state: web::Data<AppState>,
+    payload: web::Json<RequestPhoneOtpRequest>,
+) -> Result<HttpResponse, AuthHttpError> {
+    let provider = Arc::new(IkoddiPhoneOtpProvider::new(state.ikoddi_config.clone())?);
+    let challenge_store = Arc::new(RedisPhoneOtpChallengeStore::new(state.redis.clone()));
+    let use_case = RequestPhoneOtpUseCase::new(
+        Arc::new(SeaOrmUserAuthIdentityRepository::new(state.db.clone())),
+        provider,
+        challenge_store,
+        state.ikoddi_config.challenge_ttl_seconds,
+        state.ikoddi_config.resend_cooldown_seconds,
+    );
+
+    let response = use_case.execute(payload.into_inner()).await?;
+    Ok(HttpResponse::Accepted().json(response))
+}
+
+async fn verify_phone_otp(
+    state: web::Data<AppState>,
+    payload: web::Json<VerifyPhoneOtpRequest>,
+) -> Result<HttpResponse, AuthHttpError> {
+    let provider = Arc::new(IkoddiPhoneOtpProvider::new(state.ikoddi_config.clone())?);
+    let challenge_store = Arc::new(RedisPhoneOtpChallengeStore::new(state.redis.clone()));
+    let use_case = VerifyPhoneOtpUseCase::new(
+        Arc::new(SeaOrmUserRepository::new(state.db.clone())),
+        Arc::new(SeaOrmUserAuthIdentityRepository::new(state.db.clone())),
+        Arc::new(SeaOrmAuthSessionRepository::new(state.db.clone())),
+        Arc::new(SeaOrmCustomerProfileRepository::new(state.db.clone())),
+        Arc::new(SeaOrmSellerProfileRepository::new(state.db.clone())),
+        provider,
+        challenge_store,
+        Arc::new(UuidRefreshTokenService),
+        Arc::new(state.jwt.clone()),
+        state.auth_config.access_token_ttl_seconds,
+        state.auth_config.refresh_token_ttl_seconds,
+        state.ikoddi_config.challenge_ttl_seconds,
+        state.ikoddi_config.max_attempts,
+    );
+
+    let response = use_case.execute(payload.into_inner()).await?;
+    Ok(auth_cookie_response(HttpResponse::Ok(), &state, response))
+}
+
 async fn logout(
     state: web::Data<AppState>,
     user: AuthenticatedUser,
@@ -257,6 +422,22 @@ async fn change_password(
 
     use_case.execute(user.user_id, payload.into_inner()).await?;
 
+    Ok(HttpResponse::NoContent().finish())
+}
+
+async fn update_profile(
+    state: web::Data<AppState>,
+    user: AuthenticatedUser,
+    payload: web::Json<UpdateProfileRequest>,
+) -> Result<HttpResponse, AuthHttpError> {
+    let use_case = UpdateProfileUseCase::new(
+        Arc::new(SeaOrmUserRepository::new(state.db.clone())),
+        Arc::new(SeaOrmSellerProfileRepository::new(state.db.clone())),
+    );
+
+    use_case
+        .execute(user.user_id, user.is_seller, payload.into_inner())
+        .await?;
     Ok(HttpResponse::NoContent().finish())
 }
 
@@ -345,15 +526,19 @@ async fn confirm_email_verification(
     Ok(HttpResponse::NoContent().finish())
 }
 
-async fn me(user: AuthenticatedUser) -> HttpResponse {
-    HttpResponse::Ok().json(CurrentUserResponse {
-        user_id: user.user_id,
-        session_id: user.session_id,
-        is_seller: user.is_seller,
-        is_admin: user.is_admin,
-        account_verified: user.account_verified,
-        verification_channel: user.verification_channel,
-    })
+async fn me(
+    state: web::Data<AppState>,
+    user: AuthenticatedUser,
+) -> Result<HttpResponse, AuthHttpError> {
+    let use_case = GetCurrentUserProfileUseCase::new(
+        Arc::new(SeaOrmUserRepository::new(state.db.clone())),
+        Arc::new(SeaOrmUserAuthIdentityRepository::new(state.db.clone())),
+        Arc::new(SeaOrmCustomerProfileRepository::new(state.db.clone())),
+        Arc::new(SeaOrmSellerProfileRepository::new(state.db.clone())),
+    );
+    let profile = use_case.execute(user.user_id, user.session_id).await?;
+
+    Ok(HttpResponse::Ok().json(profile))
 }
 
 async fn refresh(
@@ -411,16 +596,7 @@ struct AuthSessionResponse {
     is_admin: bool,
     account_verified: bool,
     verification_channel: Option<&'static str>,
-}
-
-#[derive(Debug, Serialize)]
-struct CurrentUserResponse {
-    user_id: Uuid,
-    session_id: Uuid,
-    is_seller: bool,
-    is_admin: bool,
-    account_verified: bool,
-    verification_channel: Option<String>,
+    can_change_password: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -479,6 +655,7 @@ fn auth_cookie_response(
             is_admin: response.is_admin,
             account_verified: response.account_verified,
             verification_channel: response.verification_channel,
+            can_change_password: response.can_change_password,
         })
 }
 
@@ -544,19 +721,32 @@ fn new_csrf_token() -> String {
     Uuid::new_v4().to_string()
 }
 
-fn oauth_state_cookie(value: String, secure: bool, domain: Option<String>) -> Cookie<'static> {
-    let mut builder = Cookie::build(TIKTOK_STATE_COOKIE, value)
+fn oauth_state_cookie(name: &'static str, value: String, secure: bool) -> Cookie<'static> {
+    Cookie::build(name, value)
         .path("/")
         .http_only(true)
         .secure(secure)
         .same_site(SameSite::Lax)
-        .max_age(CookieDuration::minutes(10));
+        .max_age(CookieDuration::minutes(10))
+        .finish()
+}
 
-    if let Some(domain) = domain {
-        builder = builder.domain(domain);
-    }
+fn oauth_account_type_cookie(account_type: AccountType, secure: bool) -> Cookie<'static> {
+    let value = match account_type {
+        AccountType::Customer => "customer",
+        AccountType::Seller => "seller",
+    };
+    oauth_state_cookie(GOOGLE_ACCOUNT_TYPE_COOKIE, value.to_owned(), secure)
+}
 
-    builder.finish()
+fn clear_oauth_cookie(name: &'static str, secure: bool) -> Cookie<'static> {
+    Cookie::build(name, String::new())
+        .path("/")
+        .http_only(true)
+        .secure(secure)
+        .same_site(SameSite::Lax)
+        .max_age(CookieDuration::seconds(0))
+        .finish()
 }
 
 fn build_tiktok_authorization_url(
@@ -571,6 +761,23 @@ fn build_tiktok_authorization_url(
         "{auth_url}{separator}client_key={}&response_type=code&scope={}&redirect_uri={}&state={}",
         url_encode(client_key),
         url_encode(&scopes.join(",")),
+        url_encode(redirect_uri),
+        url_encode(state)
+    )
+}
+
+fn build_google_authorization_url(
+    auth_url: &str,
+    client_id: &str,
+    redirect_uri: &str,
+    scopes: &[String],
+    state: &str,
+) -> String {
+    let separator = if auth_url.contains('?') { '&' } else { '?' };
+    format!(
+        "{auth_url}{separator}client_id={}&response_type=code&scope={}&redirect_uri={}&state={}&access_type=online&include_granted_scopes=true&prompt=select_account",
+        url_encode(client_id),
+        url_encode(&scopes.join(" ")),
         url_encode(redirect_uri),
         url_encode(state)
     )
@@ -659,7 +866,11 @@ impl ResponseError for AuthHttpError {
             ApplicationError::Validation(_) => StatusCode::BAD_REQUEST,
             ApplicationError::InvalidCredentials => StatusCode::UNAUTHORIZED,
             ApplicationError::Conflict(_) => StatusCode::CONFLICT,
+            ApplicationError::NotFound(_) => StatusCode::NOT_FOUND,
+            ApplicationError::Forbidden(_) => StatusCode::FORBIDDEN,
             ApplicationError::Unauthorized => StatusCode::UNAUTHORIZED,
+            ApplicationError::TooManyRequests(_) => StatusCode::TOO_MANY_REQUESTS,
+            ApplicationError::ServiceUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             ApplicationError::Infrastructure(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -668,5 +879,33 @@ impl ResponseError for AuthHttpError {
         HttpResponse::build(self.status_code()).json(ErrorResponse {
             error: self.0.to_string(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn google_authorization_url_uses_openid_scopes_and_exact_redirect_uri() {
+        let url = build_google_authorization_url(
+            "https://accounts.google.com/o/oauth2/v2/auth",
+            "client-id.apps.googleusercontent.com",
+            "https://api.vendeursenlive.shop/auth/google/callback",
+            &[
+                "openid".to_owned(),
+                "email".to_owned(),
+                "profile".to_owned(),
+            ],
+            "csrf-state",
+        );
+
+        assert!(url.contains("response_type=code"));
+        assert!(url.contains("scope=openid%20email%20profile"));
+        assert!(url.contains(
+            "redirect_uri=https%3A%2F%2Fapi.vendeursenlive.shop%2Fauth%2Fgoogle%2Fcallback"
+        ));
+        assert!(url.contains("state=csrf-state"));
+        assert!(!url.contains("client_secret"));
     }
 }

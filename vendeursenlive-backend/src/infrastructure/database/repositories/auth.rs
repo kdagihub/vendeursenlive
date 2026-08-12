@@ -65,6 +65,25 @@ impl UserRepository for SeaOrmUserRepository {
             .map(user_from_model)
             .transpose()
     }
+
+    async fn update_full_name(&self, id: Uuid, full_name: String) -> Result<(), DomainError> {
+        if let Some(model) = users::Entity::find_by_id(id)
+            .one(&self.db)
+            .await
+            .map_err(repository_error)?
+        {
+            let mut active_model: users::ActiveModel = model.into();
+            active_model.full_name = Set(Some(full_name));
+            active_model.updated_at = Set(to_db_datetime(Utc::now()));
+            active_model
+                .update(&self.db)
+                .await
+                .map(|_| ())
+                .map_err(repository_error)?;
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -146,6 +165,25 @@ impl UserAuthIdentityRepository for SeaOrmUserAuthIdentityRepository {
         {
             let mut active_model: user_auth_identities::ActiveModel = model.into();
             active_model.email_verified = Set(true);
+            active_model.updated_at = Set(to_db_datetime(Utc::now()));
+            active_model
+                .update(&self.db)
+                .await
+                .map(|_| ())
+                .map_err(repository_error)?;
+        }
+
+        Ok(())
+    }
+
+    async fn mark_phone_verified(&self, identity_id: Uuid) -> Result<(), DomainError> {
+        if let Some(model) = user_auth_identities::Entity::find_by_id(identity_id)
+            .one(&self.db)
+            .await
+            .map_err(repository_error)?
+        {
+            let mut active_model: user_auth_identities::ActiveModel = model.into();
+            active_model.phone_verified = Set(true);
             active_model.updated_at = Set(to_db_datetime(Utc::now()));
             active_model
                 .update(&self.db)
@@ -561,6 +599,25 @@ impl SellerProfileRepository for SeaOrmSellerProfileRepository {
             .map_err(repository_error)?
             .map(seller_profile_from_model)
             .transpose()
+    }
+
+    async fn update_shop_name(&self, user_id: Uuid, shop_name: String) -> Result<(), DomainError> {
+        if let Some(model) = seller_profiles::Entity::find()
+            .filter(seller_profiles::Column::UserId.eq(user_id))
+            .one(&self.db)
+            .await
+            .map_err(repository_error)?
+        {
+            let mut active_model: seller_profiles::ActiveModel = model.into();
+            active_model.shop_name = Set(Some(shop_name));
+            active_model
+                .update(&self.db)
+                .await
+                .map(|_| ())
+                .map_err(repository_error)?;
+        }
+
+        Ok(())
     }
 }
 
