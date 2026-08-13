@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Compass, House, Package, Plus, UserRound } from '@lucide/vue'
+import { Compass, House, Package, Radio, UserRound } from '@lucide/vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useAuthStore } from '@/stores/auth'
@@ -61,7 +61,7 @@ function isActive(to: string) {
       <span
         class="grid h-8 w-12 place-items-center rounded-md bg-slate-950 text-white shadow-[-3px_0_0_#25f4ee,3px_0_0_#ff3447,0_6px_14px_rgba(15,23,42,0.22)] transition-transform group-active:scale-95 dark:bg-white dark:text-slate-950"
       >
-        <Plus :size="22" :stroke-width="2.8" aria-hidden="true" />
+        <Radio :size="22" :stroke-width="2.5" aria-hidden="true" />
       </span>
       <span class="text-[8px] leading-none font-extrabold">LIVE</span>
     </button>
